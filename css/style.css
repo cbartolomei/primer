@@ -402,6 +402,84 @@ details.qa .qa-body ul { margin-bottom: 0; }
 .site-footer a { color: var(--muted); }
 .site-footer a:hover { color: var(--text); }
 
+/* ── Module navigation ─────────────────────────────────────── */
+.module-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 0;
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+}
+.module-nav a {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.module-nav a:hover { color: var(--text); text-decoration: none; }
+.module-nav .center { color: var(--muted); font-size: 0.8125rem; }
+
+/* ── Resources / Go Deeper ─────────────────────────────────── */
+.resource-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+.resource {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.875rem;
+  padding: 0.875rem 1rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.resource-type {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.25em 0.6em;
+  border-radius: 4px;
+  white-space: nowrap;
+  margin-top: 0.1rem;
+  flex-shrink: 0;
+}
+.resource-type.book  { background: rgba(124, 99, 245, 0.2); color: #a898ff; }
+.resource-type.blog  { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+.resource-type.docs  { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+.resource-type.video { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+.resource-type.tool  { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
+.resource-content {}
+.resource-title  { font-size: 0.875rem; font-weight: 600; line-height: 1.3; }
+.resource-author { font-size: 0.75rem; color: var(--muted); margin-top: 0.1rem; }
+.resource-desc   { font-size: 0.8125rem; color: var(--muted); margin-top: 0.25rem; line-height: 1.5; }
+
+/* ── Tier labels (index) ───────────────────────────────────── */
+.tier {
+  margin-bottom: 2.5rem;
+}
+.tier-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.875rem;
+}
+.tier-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tier-desc {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
 /* ── Responsive ────────────────────────────────────────────── */
 @media (max-width: 640px) {
   .page-hero h1    { font-size: 1.625rem; }

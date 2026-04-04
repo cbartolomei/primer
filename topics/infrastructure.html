@@ -224,11 +224,64 @@
       </div>
     </div>
 
+    <!-- RESOURCES -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">📚</span>
+        <h2>Go Deeper</h2>
+      </div>
+      <div class="section-body">
+        <div class="resource-list">
+
+          <div class="resource">
+            <span class="resource-type docs">docs</span>
+            <div class="resource-content">
+              <div class="resource-title">Kubernetes Documentation — Concepts</div>
+              <div class="resource-author">kubernetes.io/docs/concepts</div>
+              <div class="resource-desc">The official docs are well-written. Work through: Workloads (Pods, Deployments, StatefulSets), Services and Networking, Configuration (ConfigMap/Secret), and Storage. The "Tasks" section has practical how-tos for health probes and resource limits.</div>
+            </div>
+          </div>
+
+          <div class="resource">
+            <span class="resource-type blog">blog</span>
+            <div class="resource-content">
+              <div class="resource-title">Production Kubernetes</div>
+              <div class="resource-author">Josh Rosso, Craig Martin, et al. — O'Reilly</div>
+              <div class="resource-desc">Goes beyond basic K8s to cover the things that bite you in production: multi-tenancy, security policies, networking, storage, and platform team patterns. Much more practical than the official docs for production use cases.</div>
+            </div>
+          </div>
+
+          <div class="resource">
+            <span class="resource-type blog">blog</span>
+            <div class="resource-content">
+              <div class="resource-title">Docker — Best practices for writing Dockerfiles</div>
+              <div class="resource-author">docs.docker.com</div>
+              <div class="resource-desc">Official best practices covering layer caching, multi-stage builds, .dockerignore, and security. Short and practical — worth reading before you build your next production image.</div>
+            </div>
+          </div>
+
+          <div class="resource">
+            <span class="resource-type book">book</span>
+            <div class="resource-content">
+              <div class="resource-title">Accelerate: The Science of Lean Software and DevOps</div>
+              <div class="resource-author">Nicole Forsgren, Jez Humble, Gene Kim</div>
+              <div class="resource-desc">Research-backed findings on what actually makes software delivery high-performing. Defines DORA metrics (deployment frequency, lead time, MTTR, change failure rate) that are now industry-standard for measuring CI/CD effectiveness.</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
   </div>
 </main>
 
 <footer class="site-footer">
-  <a href="../index.html">← All topics</a>
+  <div class="module-nav">
+    <a href="security.html">← Security</a>
+    <a href="../index.html" class="center">All modules</a>
+    <a href="message-queues.html">Message Queues →</a>
+  </div>
 </footer>
 
 <script src="../js/app.js"></script>

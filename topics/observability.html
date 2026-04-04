@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Observability — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <a href="../index.html" class="header-back">← Back</a>
+    <span class="site-logo">pri<span>m</span>er</span>
+    <div class="header-progress">
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="topic-progress-bar" style="width:0%"></div>
+      </div>
+      <div class="progress-label" id="topic-progress-label">0 / 13 concepts covered</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>🔭 Observability</h1>
+    <p class="subtitle">If you're running distributed services and you're fuzzy here, you're flying blind. This is where to start.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <!-- THE THREE PILLARS -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🏛️</span>
+        <h2>The Three Pillars</h2>
+      </div>
+      <div class="section-body">
+
+        <div class="note">
+          The goal of observability is to understand the internal state of a system from its external outputs — without having to deploy new code every time something breaks. Logs, metrics, and traces each answer a different question. You need all three.
+        </div>
+
+        <ul class="checklist">
+
+          <li class="check-item" data-id="structured-logging">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Structured Logging</div>
+              <div class="check-item-desc">
+                Write logs as <strong>machine-readable JSON</strong>, not human-readable strings. <code>{"level":"error","msg":"payment failed","trace_id":"abc123","user_id":"u_789","amount":4200}</code> is infinitely more useful than <code>"ERROR: payment failed for user 789"</code> — you can filter, aggregate, and join on structured fields. Log aggregation systems (Datadog, Loki, CloudWatch Insights) treat each field as a queryable column.
+                <br><br>
+                <strong>Include a correlation ID in every log line.</strong> This is a <code>trace_id</code> (or <code>request_id</code>) generated at the edge and threaded through every service call for a single user request. Without it, finding all the logs for one failed request across 10 services is close to impossible. With it, you <code>grep trace_id=abc123</code> and see the full story.
+                <br><br>
+                Log level discipline matters: <strong>ERROR</strong> = something needs human attention now. <strong>WARN</strong> = degraded but not yet broken (expect it occasionally). <strong>INFO</strong> = normal operational events worth recording. <strong>DEBUG</strong> = everything else — never on in production by default (the volume will destroy your log budget and drown signal in noise). Treat log volume as a cost to optimize.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="metrics-fundamentals">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Metrics Fundamentals</div>
+              <div class="check-item-desc">
+                Metrics are <strong>numerical measurements over time</strong>, aggregated across many requests. They tell you <em>how much</em> and <em>how fast</em>. Four types in Prometheus:
+                <br><br>
+                <strong>Counter:</strong> only goes up (request count, error count, bytes sent). Never query the raw counter — use <code>rate()</code> to get per-second rate. A counter reset to zero (on restart) will briefly look like a massive spike; <code>rate()</code> handles this correctly.
+                <strong>Gauge:</strong> can go up or down (active connections, queue depth, memory usage, temperature). Query the raw value.
+                <strong>Histogram:</strong> samples observations into buckets (<code>le="0.1"</code>, <code>le="0.5"</code>, <code>le="1.0"</code> for latency in seconds). Lets you compute <strong>quantiles server-side</strong> with <code>histogram_quantile()</code>. This is what you want for latency — p50, p95, p99.
+                <strong>Summary:</strong> computes quantiles client-side. Cheaper, but quantiles can't be aggregated across instances — two summaries from two pods can't be combined. Prefer histograms.
+                <br><br>
+                <strong>Cardinality is the footgun that takes down Prometheus.</strong> Every unique combination of label values is a separate time series stored in memory. If you put <code>user_id</code>, <code>request_id</code>, or any high-cardinality value as a Prometheus label, you will OOM the Prometheus server. Labels are for dimensions that have bounded, low-cardinality values: <code>service</code>, <code>method</code>, <code>status_code</code>, <code>region</code>.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="distributed-traces">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Distributed Traces</div>
+              <div class="check-item-desc">
+                A trace is a record of a single request's journey through your system — a directed acyclic graph of <strong>spans</strong>. Each span represents one unit of work: an HTTP handler, a DB query, a cache lookup, an outbound RPC call. Spans have: a name, start time, duration, status (OK/ERROR), attributes (key-value metadata), and events (timestamped log-like annotations).
+                <br><br>
+                Spans link together via <code>trace_id</code> (shared by all spans in a trace) and <code>parent_span_id</code> (points to the span that triggered this one). This forms the tree. When you view a trace in Jaeger or Tempo, you see a waterfall: the root span at top, child spans nested below, the width representing duration. A glance tells you which service is slow and whether work is happening sequentially or in parallel.
+                <br><br>
+                <strong>Context propagation is how the trace stays connected across services.</strong> The trace_id and span_id travel in HTTP headers (W3C <code>traceparent</code> standard) or message headers. If one service forgets to forward the header, the trace breaks — the downstream service starts a new root trace and you lose the connection. This is the most common tracing failure mode.
+                <br><br>
+                <strong>Sampling:</strong> tracing every request at high volume is prohibitively expensive. Head-based sampling decides at the root span (fast, simple, but you might drop the interesting 1% of errors). Tail-based sampling buffers spans and decides after the trace completes (expensive infra, but you can keep 100% of error traces). A practical default: sample 1% of normal traffic + 100% of errors.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="red-use-methods">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">RED &amp; USE Methods</div>
+              <div class="check-item-desc">
+                These are your first questions in every incident — a structured way to stop thrashing and actually diagnose.
+                <br><br>
+                <strong>RED (for services):</strong> <em>Rate</em> (requests/sec — is traffic normal?), <em>Errors</em> (error rate — are requests failing?), <em>Duration</em> (latency — are they slow?). Check RED first when a service is behaving badly. If rate is normal, errors are low, and latency is fine, the service itself is fine — the problem is elsewhere.
+                <br><br>
+                <strong>USE (for resources):</strong> <em>Utilization</em> (% time busy — is the CPU/disk/network saturated?), <em>Saturation</em> (queue depth — is work piling up?), <em>Errors</em> (hardware errors, dropped packets). USE tells you whether a resource constraint is causing the service problem you found with RED.
+                <br><br>
+                The Google SRE Book's <strong>Four Golden Signals</strong> overlap: Latency (=Duration), Traffic (=Rate), Errors, Saturation. Memorize whichever set you prefer — the point is a consistent starting framework so you don't waste 20 minutes looking in the wrong place.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="three-pillars-together">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Why Three Pillars Aren't Enough Alone</div>
+              <div class="check-item-desc">
+                Metrics tell you <em>that</em> something is wrong. An alert fires: p99 latency spiked to 4s. But metrics have no context — they can't tell you which user, which endpoint, which DB query, which code path. They're aggregates over thousands of requests.
+                <br><br>
+                Logs tell you <em>what happened</em> in detail, but they're disconnected. You have a stream of log lines from 20 pod instances across 6 services. Without a trace ID to connect them, finding the logs for that one slow request is like finding a needle in a haystack.
+                <br><br>
+                Traces show you <em>where</em> the time went and the causal chain — but a trace without logs gives you duration without reason. Why did the DB span take 3.5 seconds? The trace shows you <em>which</em> query was slow; the logs on that span tell you <em>why</em> (lock wait? missing index? N+1?).
+                <br><br>
+                The workflow in practice: <strong>alert fires (metric) → find the request in traces (identify the slow span) → read logs for that span (understand the root cause)</strong>. The <code>trace_id</code> links all three. This is why injecting it into your structured logs is non-negotiable.
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- PROMETHEUS & METRICS IN PRACTICE -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">📊</span>
+        <h2>Prometheus &amp; Metrics in Practice</h2>
+      </div>
+      <div class="section-body">
+        <ul class="checklist">
+
+          <li class="check-item" data-id="prometheus-data-model">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Prometheus Data Model</div>
+              <div class="check-item-desc">
+                Every time series is identified by a <strong>metric name + a set of label key-value pairs</strong>. <code>http_requests_total{service="api",method="GET",status="200"}</code> and <code>http_requests_total{service="api",method="POST",status="500"}</code> are two separate time series. Labels let you slice and dice: "show me error rate broken down by service and endpoint."
+                <br><br>
+                Prometheus is <strong>pull-based</strong>: it scrapes an HTTP <code>/metrics</code> endpoint on your service at a configurable interval (typically 15s). Your service exposes metrics in Prometheus text format via a client library (prometheus-client for Python, prom-client for Node, micrometer for JVM). This is deliberately simple — your service doesn't need to know where Prometheus is.
+                <br><br>
+                <strong>Recording rules</strong> let you pre-compute expensive PromQL expressions on ingestion: <code>record: job:request_latency_seconds:p99</code>. Dashboards that would take seconds to render can now query the pre-computed result instead. Use recording rules for any query your dashboard runs on every load.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="promql-basics">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">PromQL Essentials</div>
+              <div class="check-item-desc">
+                The five expressions you'll use 80% of the time:
+                <br><br>
+                <code>rate(http_requests_total[5m])</code> — per-second average rate over a 5-minute window. Use <code>rate()</code> for counters, not <code>increase()</code> (which returns total increase and doesn't handle resets as gracefully).
+                <br>
+                <code>sum by (service) (rate(http_errors_total[5m]))</code> — aggregate across pods, broken down by service label.
+                <br>
+                <code>histogram_quantile(0.99, sum by (le) (rate(request_duration_seconds_bucket[5m])))</code> — the p99 latency. The <code>sum by (le)</code> aggregates histogram buckets across all instances before computing the quantile — this is correct. If you skip the <code>sum</code>, you get per-instance quantiles which are less useful.
+                <br>
+                <code>rate(http_errors_total[5m]) / rate(http_requests_total[5m])</code> — error ratio. Useful in alerts: fire when this exceeds 0.01 (1% error rate).
+                <br>
+                <code>absent(up{job="api"})</code> — fires when a metric disappears entirely (service is down and not scraping). Critical alert: your other metrics won't even exist to alert on.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="alerting-symptoms">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Alerting on Symptoms, Not Causes</div>
+              <div class="check-item-desc">
+                The most important alerting principle: <strong>alert on user-facing symptoms, not internal causes</strong>. An alert should mean "users are experiencing something bad right now" — not "an internal metric crossed a threshold that might eventually cause a problem."
+                <br><br>
+                Bad alert: <code>CPU usage &gt; 80%</code>. CPU at 80% often doesn't affect users at all. You'll get paged at 3am for nothing, get burned out on false positives, and eventually start ignoring alerts — which is catastrophic.
+                Good alert: <code>error rate &gt; 1% for 5 minutes</code> or <code>p99 latency &gt; 500ms for 10 minutes</code>. These mean users are actually experiencing degradation.
+                <br><br>
+                <strong>Cause-based metrics</strong> (CPU, memory, disk) are useful for <em>dashboards and debugging</em> — once an alert fires, you look at causes to understand why. But the alert itself should be symptom-based.
+                <br><br>
+                Configure <strong>alert fatigue prevention</strong> in Alertmanager: deduplication (don't fire the same alert 100 times), inhibition (suppress downstream alerts when the root cause fires), grouping (one Slack message for 10 related alerts), and <code>for: 5m</code> clauses to require the condition to persist before paging.
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- OPENTELEMETRY -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🔗</span>
+        <h2>OpenTelemetry</h2>
+      </div>
+      <div class="section-body">
+
+        <div class="note">
+          Before OpenTelemetry, every observability vendor had their own SDK — Jaeger client, Zipkin client, Datadog tracer, New Relic agent. If you switched vendors, you re-instrumented your codebase. OTel solves this by separating instrumentation (in your code) from the backend (wherever data goes).
+        </div>
+
+        <ul class="checklist">
+
+          <li class="check-item" data-id="otel-overview">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">What OpenTelemetry Is</div>
+              <div class="check-item-desc">
+                OpenTelemetry (OTel) is a <strong>vendor-neutral standard</strong> for generating, collecting, and exporting telemetry — covering traces, metrics, and logs under one API and SDK. The wire protocol is OTLP (OpenTelemetry Protocol). Instrument once with OTel, export to any backend: Jaeger, Tempo, Datadog, Honeycomb, New Relic, Prometheus.
+                <br><br>
+                <strong>Auto-instrumentation</strong> hooks into popular frameworks and libraries automatically — no code changes required. A Java OTel agent attaches at JVM startup and patches HTTP clients, JDBC drivers, gRPC stubs, etc. Node.js has <code>@opentelemetry/auto-instrumentations-node</code> that patches Express, pg, Redis, etc. You get spans for every outbound call for free.
+                <br><br>
+                <strong>Manual instrumentation</strong> is for your business logic — the things no framework can know about. Start a span around a critical computation, set attributes (<code>span.setAttribute("order.id", orderId)</code>), record events (<code>span.addEvent("payment.authorized")</code>), and set status (<code>span.setStatus({code: SpanStatusCode.ERROR})</code> on failure). Manual spans are what make traces actually useful for debugging domain logic, not just framework calls.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="context-propagation">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Context Propagation</div>
+              <div class="check-item-desc">
+                Traces only work if the trace context travels with the request across every hop. This happens via <strong>propagation headers</strong>. The W3C standard is the <code>traceparent</code> header: <code>traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01</code> (version-traceId-parentSpanId-flags). When Service B receives this header, it creates a child span under the parent span from Service A.
+                <br><br>
+                <strong>Where propagation breaks:</strong> any middleware or framework that doesn't forward headers (e.g., a custom HTTP client wrapper that strips unknown headers), async workers that don't pass context to background jobs, message queue consumers that don't read headers from messages. When propagation breaks, the trace appears as multiple disconnected root traces instead of one connected tree.
+                <br><br>
+                For message queues: inject trace context into message headers when producing. Extract it when consuming. Kafka message headers and AMQP message properties both support this. OTel SDKs provide <code>propagator.inject(carrier)</code> and <code>propagator.extract(carrier)</code> to handle this generically across transport types.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="otel-collector">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">OTel Collector</div>
+              <div class="check-item-desc">
+                The OTel Collector is a standalone agent/gateway that receives telemetry from your services, processes it, and exports it to one or many backends. It's not required (you can export directly from the SDK), but it's strongly recommended in production.
+                <br><br>
+                The collector pipeline has three stages: <strong>Receivers</strong> (accept data via OTLP, Jaeger, Zipkin, Prometheus scrape, etc.), <strong>Processors</strong> (batch, filter, enrich, sample, redact PII), <strong>Exporters</strong> (send to Jaeger, Tempo, Datadog, S3, etc.).
+                <br><br>
+                <strong>Key advantage:</strong> your application code only sends to the local collector (or sidecar). The collector handles routing, batching, retry logic, and backend configuration. Switching from Jaeger to Tempo? Update the collector config, not your application code. Running in Kubernetes: deploy as a DaemonSet (one collector per node) for efficient batching, or as a sidecar per pod if you need per-service sampling configuration.
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- SLOs & ERROR BUDGETS -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🎯</span>
+        <h2>SLOs &amp; Error Budgets</h2>
+      </div>
+      <div class="section-body">
+
+        <div class="note">
+          SLOs are how you make the reliability vs velocity tradeoff explicit and data-driven. Without them, every reliability decision is a negotiation between "engineers who want to ship" and "engineers who are scared of outages." With them, you have an objective budget to spend.
+        </div>
+
+        <ul class="checklist">
+
+          <li class="check-item" data-id="slo-concepts">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">SLI, SLO, SLA</div>
+              <div class="check-item-desc">
+                <strong>SLI (Service Level Indicator):</strong> a specific, measurable property of your service. Good SLIs are directly about user experience. Example: "proportion of HTTP requests that returned a 2xx response within 300ms, measured over the past 30 days." Always define the measurement window and what counts as "good."
+                <br><br>
+                <strong>SLO (Service Level Objective):</strong> the target value for your SLI. "99.5% of requests will meet the SLI." This is an internal goal you hold yourself to. Choose a number based on what users actually need, not "five nines because it sounds good." 99.5% SLO = 3.65 hours of allowed downtime per month. 99.99% SLO = 4.38 minutes. Every additional 9 is exponentially harder.
+                <br><br>
+                <strong>SLA (Service Level Agreement):</strong> a contract with external parties (customers, business units) that specifies consequences for breaching the SLO — typically credits, refunds, or contract terms. Your internal SLO should be slightly stricter than your external SLA so you have a warning margin before you're contractually in breach.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="error-budgets">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Error Budgets &amp; Burn Rate</div>
+              <div class="check-item-desc">
+                Your <strong>error budget = 1 − SLO</strong>. At 99.5% SLO, you have a 0.5% error budget per month. This is the allowed amount of "bad" events. Once it's spent, you've violated your SLO.
+                <br><br>
+                The key insight: <strong>the error budget makes the reliability/velocity tradeoff explicit.</strong> If your budget is healthy (plenty remaining), shipping fast and accepting some risk is rational. If you've burned through 80% of your monthly budget by week two, you freeze risky deployments and focus on reliability work. This stops both sides of the debate from being purely opinion-based.
+                <br><br>
+                <strong>Burn rate alerts</strong> are more useful than simple threshold alerts. A burn rate of 1× means you'll exhaust exactly 100% of your budget by end of month. A burn rate of 14.4× means you'll exhaust the entire monthly budget in 2 hours — that's a critical incident. Alerting on burn rate (rather than raw error rate) lets you detect both slow burns (missing SLO by end of month) and fast burns (active incident) with appropriate urgency. Google's SRE Workbook has a complete burn rate alerting framework worth reading.
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- Q&A -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🧠</span>
+        <h2>Test Your Understanding</h2>
+      </div>
+      <div class="section-body">
+
+        <details class="qa">
+          <summary>You have a latency spike on a service. Walk through how you'd investigate using all three pillars.</summary>
+          <div class="qa-body">
+            <p><strong>1. Metrics first:</strong> confirm the spike is real and characterize it. Is it p50 or just p99? All endpoints or one? Started when? Check traffic and error rate too — a latency spike with rising errors is more urgent than a silent one.</p>
+            <p><strong>2. Traces:</strong> find specific examples of slow requests during the spike window. Filter traces by duration &gt; your p99 threshold. Look at the waterfall: is the time in your service's own code, a DB span, a downstream RPC, or a queue wait? This tells you exactly where to look.</p>
+            <p><strong>3. Logs:</strong> take the trace ID from a slow trace. Search logs for that trace_id across all services. Read the slow span's logs for context — lock waits, slow query logs, connection pool exhaustion, retry loops.</p>
+            <p>This three-step process — alert → trace → log — takes 5 minutes with good tooling vs 45 minutes of grep-and-prayer without it.</p>
+          </div>
+        </details>
+
+        <details class="qa">
+          <summary>Why is histogram_quantile more reliable than a summary for p99 latency?</summary>
+          <div class="qa-body">
+            <p>A summary computes quantiles client-side and exports them as fixed values (e.g., <code>latency{quantile="0.99"} 0.35</code>). If you have 10 pods, you have 10 separate p99 values that cannot be mathematically aggregated — the p99 across all pods is not the average of 10 pod-level p99s.</p>
+            <p>A histogram exports raw bucket counts (<code>latency_bucket{le="0.1"}</code>, <code>latency_bucket{le="0.5"}</code>, etc.). Bucket counts <em>can</em> be summed across pods: <code>sum by (le) (rate(latency_bucket[5m]))</code>. Then <code>histogram_quantile(0.99, ...)</code> computes the p99 from the aggregate distribution across all pods. This gives you the true fleet-wide p99, not an average of individual p99s (which would underestimate the true value).</p>
+          </div>
+        </details>
+
+        <details class="qa">
+          <summary>What's the difference between monitoring and observability?</summary>
+          <div class="qa-body">
+            <p><strong>Monitoring</strong> is checking for known failure modes: "alert when error rate &gt; 5%." It assumes you can enumerate all the ways a system can fail in advance. It works well for simple, predictable systems.</p>
+            <p><strong>Observability</strong> is the ability to understand a system's internal state from its outputs alone — including <em>unknown unknowns</em> you couldn't predict in advance. A highly observable system lets you ask arbitrary questions at debug time without shipping new instrumentation. The distinction matters in distributed systems, where the failure modes are combinatorially complex and constantly surprising.</p>
+            <p>In practice: you need both. Monitoring (SLO alerts, symptom-based alerts) wakes you up. Observability (high-cardinality events, rich traces, structured logs) lets you actually understand what happened once you're awake.</p>
+          </div>
+        </details>
+
+        <details class="qa">
+          <summary>Your error budget is burning too fast. What do you do?</summary>
+          <div class="qa-body">
+            <p>The SLO framework gives you a clear decision tree:</p>
+            <ol>
+              <li><strong>Identify the cause:</strong> what events are consuming budget? Use your SLI measurement to find which requests are failing or slow. Traces and logs to understand why.</li>
+              <li><strong>Freeze risky changes:</strong> no new feature deployments until budget is restored. If a deploy caused the burn, roll it back.</li>
+              <li><strong>Reliability work takes priority:</strong> the error budget is the business case for stopping feature work. Use it — that's what it's there for.</li>
+              <li><strong>If budget is consistently exhausted:</strong> either your SLO is too tight (lower it to reflect actual achievable reliability), or your system has structural reliability issues that need investment (better error handling, more redundancy, circuit breakers).</li>
+            </ol>
+          </div>
+        </details>
+
+      </div>
+    </div>
+
+    <!-- RESOURCES -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">📚</span>
+        <h2>Go Deeper</h2>
+      </div>
+      <div class="section-body">
+        <div class="resource-list">
+
+          <div class="resource">
+            <span class="resource-type book">book</span>
+            <div class="resource-content">
+              <div class="resource-title">Observability Engineering</div>
+              <div class="resource-author">Charity Majors, Liz Fong-Jones, George Miranda — O'Reilly</div>
+              <div class="resource-desc">The definitive modern take on observability. Argues strongly for high-cardinality structured events over traditional metrics-and-logs. Start with chapters 1–5 to build the mental model, then chapter 11 on SLOs.</div>
+            </div>
+          </div>
+
+          <div class="resource">
+            <span class="resource-type blog">blog</span>
+            <div class="resource-content">
+              <div class="resource-title">Monitoring and Observability (the essay)</div>
+              <div class="resource-author">Cindy Sridharan</div>
+              <div class="resource-desc">The piece that crystallized the three-pillar framing for the industry. Short, dense, worth reading before anything else. Search "cindy sridharan monitoring observability" — it's on Medium.</div>
+            </div>
+          </div>
+
+          <div class="resource">
+            <span class="resource-type book">book</span>
+            <div class="resource-content">
+              <div class="resource-title">Site Reliability Engineering — Chapter 6: Monitoring Distributed Systems</div>
+              <div class="resource-author">Google — free at sre.google/sre-book</div>
+              <div class="resource-desc">Defines the Four Golden Signals and the philosophy of symptom-based alerting. Chapter 5 (Eliminating Toil) is also worth reading. The whole book is free online.</div>
+            </div>
+          </div>
+
+          <div class="resource">
+            <span class="resource-type docs">docs</span>
+            <div class="resource-content">
+              <div class="resource-title">Prometheus Documentation — Data Model &amp; Metric Types</div>
+              <div class="resource-author">prometheus.io/docs</div>
+              <div class="resource-desc">The official docs are unusually good. Read the data model, metric types, and PromQL sections front-to-back. About 30 minutes, saves hours of confusion later.</div>
+            </div>
+          </div>
+
+          <div class="resource">
+            <span class="resource-type book">book</span>
+            <div class="resource-content">
+              <div class="resource-title">The SRE Workbook — Chapter 2: Implementing SLOs</div>
+              <div class="resource-author">Google — free at sre.google/workbook</div>
+              <div class="resource-desc">More practical than the SRE Book. Chapter 2 has the complete burn rate alerting framework with PromQL examples. Chapter 3 on SLO engineering is excellent.</div>
+            </div>
+          </div>
+
+          <div class="resource">
+            <span class="resource-type docs">docs</span>
+            <div class="resource-content">
+              <div class="resource-title">OpenTelemetry Documentation — Concepts</div>
+              <div class="resource-author">opentelemetry.io/docs/concepts</div>
+              <div class="resource-desc">Start with Signals (traces, metrics, logs), then Context Propagation, then the Collector. The Getting Started guides for your language are also solid.</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /topic-content -->
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <span class="center"></span>
+    <a href="../index.html" class="center">All modules</a>
+    <a href="databases.html">Databases →</a>
+  </div>
+</footer>
+
+<script src="../js/app.js"></script>
+<script>
+  initChecklist('observability');
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('../sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>

@@ -7,6 +7,7 @@ const PRECACHE = [
   './js/app.js',
   './manifest.json',
   './icons/icon.svg',
+  './topics/observability.html',
   './topics/http-networking.html',
   './topics/databases.html',
   './topics/caching.html',
