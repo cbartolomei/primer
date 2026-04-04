@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Design — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <a href="../index.html" class="header-back">← Back</a>
+    <span class="site-logo">pri<span>m</span>er</span>
+    <div class="header-progress">
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="topic-progress-bar" style="width:0%"></div>
+      </div>
+      <div class="progress-label" id="topic-progress-label">0 / 12 concepts covered</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>🏗️ System Design</h1>
+    <p class="subtitle">Scaling, load balancing, distributed systems theory, resilience patterns, and microservices.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <!-- SCALING FUNDAMENTALS -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">📈</span>
+        <h2>Scaling Fundamentals</h2>
+      </div>
+      <div class="section-body">
+        <ul class="checklist">
+
+          <li class="check-item" data-id="horizontal-vertical">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Horizontal vs Vertical Scaling</div>
+              <div class="check-item-desc">
+                <strong>Vertical (scale-up):</strong> bigger machine — more CPU, RAM. Simple (no code changes), but has an upper bound, expensive at the top end, and is a single point of failure.
+                <strong>Horizontal (scale-out):</strong> more machines behind a load balancer. Scales to near-arbitrary limits, better fault tolerance, but requires <em>stateless</em> services — session state must live outside the instance (Redis, DB). Good for auto-scaling with cloud providers.
+                Database vertical scaling buys time; horizontal scaling of writes requires sharding or a distributed DB.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="load-balancing">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Load Balancing</div>
+              <div class="check-item-desc">
+                Algorithms: <strong>Round Robin</strong> (simple, ignores load), <strong>Least Connections</strong> (good for variable request duration), <strong>IP Hash / Sticky Sessions</strong> (same client → same server, needed for stateful connections), <strong>Weighted</strong> (route more to powerful instances), <strong>Random</strong>.
+                <strong>L4 (Transport):</strong> routes based on IP/TCP — fast, no app awareness. <strong>L7 (Application):</strong> routes based on HTTP headers, URL paths, cookies — enables content-based routing, SSL termination, WebSocket upgrades. AWS: ALB (L7), NLB (L4).
+                <strong>Health checks:</strong> passive (detect failures by observing traffic) + active (periodic HTTP probe to <code>/health</code>). Remove unhealthy nodes from rotation.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="consistent-hashing">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Consistent Hashing</div>
+              <div class="check-item-desc">
+                Problem with modulo hashing: adding/removing 1 node out of N remaps ~N-1/N of keys — catastrophic cache invalidation.
+                Consistent hashing: nodes and keys are placed on a hash ring (0 to 2³²). A key maps to the next node clockwise. Adding/removing a node only moves O(1/N) of keys.
+                <strong>Virtual nodes:</strong> each physical node gets K virtual nodes on the ring, improving distribution and handling heterogeneous node sizes.
+                Used in: DynamoDB, Cassandra, Redis Cluster, Memcached client libraries (Ketama).
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- DISTRIBUTED SYSTEMS THEORY -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🌐</span>
+        <h2>Distributed Systems Theory</h2>
+      </div>
+      <div class="section-body">
+        <ul class="checklist">
+
+          <li class="check-item" data-id="cap-theorem">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">CAP Theorem</div>
+              <div class="check-item-desc">
+                In a distributed system that may experience network partitions, you can guarantee at most two of:
+                <strong>Consistency</strong> (every read returns the most recent write or an error),
+                <strong>Availability</strong> (every request gets a non-error response),
+                <strong>Partition Tolerance</strong> (system works despite network partition).
+                Since partitions <em>will</em> happen, the real choice is <strong>CP vs AP</strong>.
+                <strong>CP systems</strong> (reject requests during partition to preserve consistency): ZooKeeper, HBase, etcd.
+                <strong>AP systems</strong> (remain available, serve possibly stale data): Cassandra, DynamoDB, CouchDB.
+                PACELC extends CAP: even without partitions, there's a latency vs consistency tradeoff.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="rate-limiting">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Rate Limiting Algorithms</div>
+              <div class="check-item-desc">
+                <strong>Token Bucket:</strong> tokens added at rate R, bucket capacity B. Each request consumes 1 token. Allows bursts up to B. Most flexible — used by AWS, Stripe.
+                <strong>Leaky Bucket:</strong> requests fill a bucket; processed at a constant rate (like a leaky container). Smooths bursts but queues them — adds latency. Bad for real-time.
+                <strong>Fixed Window:</strong> count requests per minute. Simple but vulnerable to boundary bursts (2× the limit across a window boundary).
+                <strong>Sliding Window Log:</strong> record timestamp of each request; count within rolling window. Accurate but memory-intensive.
+                <strong>Sliding Window Counter:</strong> current_window_count + (prev_window_count × % remaining in current window). Good approximation with low memory.
+                Distributed rate limiting: store counts in Redis (atomic INCR); use Lua scripts for atomicity.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="circuit-breaker">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Circuit Breaker</div>
+              <div class="check-item-desc">
+                Prevents cascade failures when a downstream service is failing. Three states:
+                <strong>Closed:</strong> normal operation, requests pass through; failure count tracked.
+                <strong>Open:</strong> failure threshold exceeded; requests fail fast (no call to downstream). After a timeout, moves to Half-Open.
+                <strong>Half-Open:</strong> allow a probe request through; if it succeeds, close the breaker; if it fails, reopen.
+                Always combine with <strong>timeouts</strong> (don't wait forever for a slow dependency) and <strong>retries with exponential backoff + jitter</strong> (avoid synchronized retry storms).
+                Libraries: Hystrix (deprecated), Resilience4j (Java), polly (.NET), opossum (Node).
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="api-gateway">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">API Gateway</div>
+              <div class="check-item-desc">
+                Single entry point for all client requests. Responsibilities: SSL termination, authentication (validate JWT), authorization, rate limiting, request routing (path → service), load balancing, request/response transformation, observability (logging, tracing headers), circuit breaking.
+                <strong>Benefits:</strong> centralizes cross-cutting concerns, clients only talk to one endpoint.
+                <strong>Risks:</strong> becomes a bottleneck / SPOF if not HA; adds latency hop; can become a God object with too much logic.
+                Tools: Kong, AWS API Gateway, Nginx + Lua, Traefik, Envoy, APISIX.
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- ADVANCED PATTERNS -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🔮</span>
+        <h2>Advanced Patterns</h2>
+      </div>
+      <div class="section-body">
+        <ul class="checklist">
+
+          <li class="check-item" data-id="cqrs">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">CQRS</div>
+              <div class="check-item-desc">
+                <strong>Command Query Responsibility Segregation:</strong> separate the write model (commands that change state) from the read model (queries that return data). Each can use the most appropriate data store — writes to a normalized relational DB, reads from a denormalized read-optimized store (Elasticsearch, Redis, materialized views).
+                The read model is kept in sync via events or DB triggers (eventual consistency).
+                <strong>When to use:</strong> high read/write ratio imbalance, complex domain logic, need for audit trails. Don't use it everywhere — adds significant complexity.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="event-sourcing">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Event Sourcing</div>
+              <div class="check-item-desc">
+                Store the <em>sequence of events</em> that led to the current state, not just the current state. State is derived by replaying events.
+                <strong>Benefits:</strong> complete audit log (compliance-friendly), time-travel debugging (replay up to any point in time), natural event-driven architecture, rebuild any read model from the event log.
+                <strong>Challenges:</strong> event schema evolution (can't easily change past events), eventual consistency (read models lag), high disk usage for long-lived aggregates (snapshots help), mental model shift.
+                Often paired with CQRS. Used in banking, audit systems, collaborative tools (like Google Docs).
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="saga">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Saga Pattern</div>
+              <div class="check-item-desc">
+                Distributed transactions without 2-Phase Commit (2PC is blocking and doesn't work across microservices).
+                A saga is a sequence of local transactions. Each step publishes an event that triggers the next. On failure, <em>compensating transactions</em> undo completed steps.
+                <strong>Choreography:</strong> services react to events autonomously — no central coordinator. Decoupled but hard to track, hard to debug, circular dependencies possible.
+                <strong>Orchestration:</strong> a central saga orchestrator issues commands to participants and handles failures. Easier to reason about but introduces coupling to the orchestrator. Temporal.io is a popular workflow engine for orchestrated sagas.
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- MICROSERVICES -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🧱</span>
+        <h2>Microservices</h2>
+      </div>
+      <div class="section-body">
+        <ul class="checklist">
+
+          <li class="check-item" data-id="microservices">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Microservices vs Monolith</div>
+              <div class="check-item-desc">
+                <strong>Microservices pros:</strong> independent deployment, language/tech diversity per service, fault isolation, team autonomy (each team owns their service), scales individual components.
+                <strong>Microservices cons:</strong> distributed systems complexity (network latency, partial failure), data consistency across services, operational overhead (deploy N services, not 1), observability harder (traces span services).
+                <strong>When to start:</strong> strong default to monolith first — simpler to build, refactor, and test. Extract services when a clear seam emerges (team ownership, independent scaling need, different SLAs).
+                <strong>Service mesh</strong> (Istio, Linkerd): handles mTLS between services, retries, circuit breaking, tracing — via sidecar proxy, not app code.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="service-discovery">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Service Discovery</div>
+              <div class="check-item-desc">
+                How services find each other in dynamic environments where IPs change constantly.
+                <strong>Client-side discovery:</strong> service queries a registry (Consul, Eureka) and picks an instance. Client does the load balancing. Coupling: client needs registry SDK.
+                <strong>Server-side discovery:</strong> client calls a load balancer/router, which queries the registry. Client stays simple. Kubernetes Services work this way — stable DNS name + kube-proxy handles routing.
+                <strong>DNS-based:</strong> <code>my-service.namespace.svc.cluster.local</code> in Kubernetes. Simple and universal.
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- Q&A -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🧠</span>
+        <h2>Quick Review</h2>
+      </div>
+      <div class="section-body">
+
+        <details class="qa">
+          <summary>In a system design interview, how do you estimate QPS and storage?</summary>
+          <div class="qa-body">
+            <p>Quick back-of-envelope numbers to memorize:</p>
+            <ul>
+              <li>1M users × 10 requests/day ÷ 86,400 sec/day ≈ <strong>~115 QPS</strong></li>
+              <li>1 KB average request → 115 QPS × 1 KB = <strong>~115 KB/s</strong> throughput</li>
+              <li>1M users × 10 writes/day × 1 KB = <strong>10 GB/day</strong> → ~3.6 TB/year</li>
+              <li>Latency targets: p50 &lt; 100ms, p99 &lt; 500ms is a common starting point for APIs</li>
+              <li>A single-core machine handles ~10K–50K simple HTTP requests/sec; DB reads ~5K–50K QPS</li>
+            </ul>
+            <p>Always clarify: DAU vs MAU, read:write ratio, expected data size per entity, consistency requirements.</p>
+          </div>
+        </details>
+
+        <details class="qa">
+          <summary>Why is 2-Phase Commit (2PC) problematic in microservices?</summary>
+          <div class="qa-body">
+            <p>2PC requires a coordinator to drive two phases: (1) prepare — all participants say "ready to commit", (2) commit — coordinator tells all to commit. Problems:</p>
+            <ul>
+              <li><strong>Blocking:</strong> if the coordinator crashes after prepare but before commit, participants are stuck holding locks indefinitely</li>
+              <li><strong>Single point of failure:</strong> coordinator crash halts the whole transaction</li>
+              <li><strong>Network assumption:</strong> assumes all participants are reachable — violates real-world partition scenarios</li>
+              <li><strong>Latency:</strong> two full round-trips, all participants must wait for the slowest</li>
+            </ul>
+            <p>The Saga pattern avoids these by using local transactions + compensating actions instead of distributed locking.</p>
+          </div>
+        </details>
+
+        <details class="qa">
+          <summary>What's the difference between latency and throughput, and how do they interact?</summary>
+          <div class="qa-body">
+            <p><strong>Latency:</strong> time for a single request to complete (ms). Report as percentiles: p50, p95, p99, p999 — not averages (averages hide tail latency).</p>
+            <p><strong>Throughput:</strong> requests per second the system can handle.</p>
+            <p>They interact: Little's Law: <code>L = λW</code> (avg queue length = arrival rate × avg wait time). At high throughput approaching capacity, queues build up and latency degrades non-linearly. Rule of thumb: keep utilization below 70–80% to avoid queue buildup. The Universal Scalability Law (USL) models how adding resources diminishes returns due to contention and coherency overhead.</p>
+          </div>
+        </details>
+
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <a href="../index.html">← All topics</a>
+</footer>
+
+<script src="../js/app.js"></script>
+<script>
+  initChecklist('system-design');
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('../sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>

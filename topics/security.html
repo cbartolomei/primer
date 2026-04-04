@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Security — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <a href="../index.html" class="header-back">← Back</a>
+    <span class="site-logo">pri<span>m</span>er</span>
+    <div class="header-progress">
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="topic-progress-bar" style="width:0%"></div>
+      </div>
+      <div class="progress-label" id="topic-progress-label">0 / 10 concepts covered</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>🔐 Security</h1>
+    <p class="subtitle">Authentication, authorization, OAuth 2.0, CORS, common web vulnerabilities, and secrets management.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <!-- AUTH FUNDAMENTALS -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🔑</span>
+        <h2>Authentication &amp; Authorization</h2>
+      </div>
+      <div class="section-body">
+        <ul class="checklist">
+
+          <li class="check-item" data-id="authn-authz">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">AuthN vs AuthZ</div>
+              <div class="check-item-desc">
+                <strong>Authentication (AuthN):</strong> verifying <em>who you are</em> — identity. "Prove you are Alice."
+                <strong>Authorization (AuthZ):</strong> determining <em>what you can do</em> — permissions. "Alice can read invoices but not delete them."
+                Common mistakes: (1) checking AuthN but skipping AuthZ — assuming all logged-in users can do everything. (2) Trusting client-supplied role/permission claims without verifying server-side. (3) Failing open when an auth service is unreachable. Always fail closed.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="sessions-jwt">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Sessions vs JWT</div>
+              <div class="check-item-desc">
+                <strong>Session-based:</strong> server generates a session ID, stores session data server-side (in Redis/DB), client holds cookie. Easy to invalidate (delete from store). Stateful — scales horizontally with shared session store.
+                <strong>JWT (JSON Web Token):</strong> <code>header.payload.signature</code> — base64url encoded (not encrypted by default — anyone can decode the payload!). Stateless — server just verifies signature, no DB lookup. Cannot be invalidated without a blocklist (negating stateless benefit). Use short expiry (15 min) + refresh token flow. Never store sensitive data in payload.
+                <strong>Common errors:</strong> <code>alg: none</code> attack, accepting any algorithm, symmetric vs asymmetric key confusion.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="oauth2">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">OAuth 2.0 &amp; OIDC</div>
+              <div class="check-item-desc">
+                OAuth 2.0 is an <em>authorization</em> framework (delegate access, not authentication). OIDC (OpenID Connect) adds identity on top — provides an ID token (JWT) with user info.
+                <strong>Authorization Code Flow</strong> (web apps): redirect to IdP → user authenticates → code returned → exchange code for tokens on backend. Code is single-use, tokens never in browser history.
+                <strong>PKCE</strong> (Proof Key for Code Exchange): for SPAs/mobile where there's no client secret. Generate code_verifier → hash → code_challenge. Prevents auth code interception.
+                <strong>Client Credentials</strong> (M2M): service authenticates directly with client_id + secret.
+                Always validate the <code>state</code> parameter to prevent CSRF on the redirect.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="cors">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">CORS</div>
+              <div class="check-item-desc">
+                Browser's Same-Origin Policy blocks cross-origin requests (origin = scheme + host + port). CORS allows servers to explicitly permit cross-origin access.
+                Key response headers: <code>Access-Control-Allow-Origin</code>, <code>-Allow-Methods</code>, <code>-Allow-Headers</code>, <code>-Allow-Credentials</code> (if true, origin cannot be *), <code>-Max-Age</code> (preflight cache duration).
+                <strong>Never set <code>Access-Control-Allow-Origin: *</code> with credentials</strong> — browsers will block it, and it's a security risk.
+                <strong>Server-side validation:</strong> validate the Origin header on the server, don't rely solely on browser enforcement. APIs called server-to-server aren't subject to CORS.
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- COMMON VULNERABILITIES -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">⚠️</span>
+        <h2>Common Vulnerabilities</h2>
+      </div>
+      <div class="section-body">
+        <ul class="checklist">
+
+          <li class="check-item" data-id="sql-injection">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">SQL Injection</div>
+              <div class="check-item-desc">
+                User input is interpreted as SQL. Classic: <code>' OR '1'='1</code> in a login form constructed via string concatenation.
+                <strong>Prevention:</strong> always use <em>parameterized queries</em> (prepared statements) — the DB driver separates code from data. Never concatenate user input into SQL strings.
+                ORMs protect by default but watch for raw query escape hatches (<code>.raw()</code>, <code>query()</code>). Also watch for second-order injection: data stored safely but then used unsafely in a later query.
+                Additional layers: least-privilege DB users (app user can't DROP tables), WAF rules.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="xss">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">XSS (Cross-Site Scripting)</div>
+              <div class="check-item-desc">
+                Injecting malicious scripts into pages viewed by other users. Types:
+                <strong>Stored:</strong> script saved in DB, served to all visitors (e.g. forum post).
+                <strong>Reflected:</strong> script in URL, reflected in response (e.g. search results page).
+                <strong>DOM-based:</strong> client-side JS writes attacker-controlled data to the DOM.
+                <strong>Prevention:</strong> output encoding (escape HTML entities before rendering), never use <code>innerHTML</code> with untrusted data, use <code>textContent</code> instead. <strong>Content Security Policy (CSP)</strong> headers — restrict which scripts can run. <code>HttpOnly</code> cookies — prevent JS access to session cookies.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="csrf">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">CSRF (Cross-Site Request Forgery)</div>
+              <div class="check-item-desc">
+                A malicious site tricks the victim's browser into making an authenticated request to your site (the browser automatically sends cookies).
+                Example: <code>&lt;img src="https://bank.com/transfer?to=attacker&amp;amount=1000"&gt;</code>.
+                <strong>Prevention:</strong>
+                <strong>SameSite cookie attribute</strong>: <code>SameSite=Strict</code> (never cross-site) or <code>SameSite=Lax</code> (allows top-level navigations). Best first defense.
+                <strong>CSRF token</strong>: include a secret token in forms, validate server-side. Token must be per-session or per-request.
+                Check <code>Origin</code> / <code>Referer</code> headers. If using JSON APIs with <code>Content-Type: application/json</code>, simple CSRF is already blocked (preflight required).
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="owasp">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">OWASP Top 10 (2021)</div>
+              <div class="check-item-desc">
+                <strong>A01 Broken Access Control</strong> — most common. Missing authz checks, IDOR (Insecure Direct Object Reference: <code>/invoice/1234</code> works for any user).
+                <strong>A02 Cryptographic Failures</strong> — transmitting sensitive data in plaintext, weak algorithms (MD5/SHA1 for passwords — use bcrypt/argon2).
+                <strong>A03 Injection</strong> — SQL, NoSQL, OS command, LDAP injection.
+                <strong>A04 Insecure Design</strong> — security must be designed in, not bolted on.
+                <strong>A05 Security Misconfiguration</strong> — default creds, debug mode in prod, verbose errors.
+                <strong>A06 Vulnerable Components</strong> — outdated dependencies with known CVEs.
+                <strong>A07 Auth Failures</strong> — broken auth, weak passwords, no brute-force protection.
+                <strong>A08 Software Integrity Failures</strong> — unsigned updates, CI/CD compromise.
+                <strong>A09 Security Logging Failures</strong> — no audit trail for security events.
+                <strong>A10 SSRF</strong> — Server-Side Request Forgery: attacker makes server fetch attacker-controlled URL (e.g. EC2 metadata endpoint).
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- TRANSPORT & SECRETS -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🗝️</span>
+        <h2>Transport &amp; Secrets</h2>
+      </div>
+      <div class="section-body">
+        <ul class="checklist">
+
+          <li class="check-item" data-id="tls-certs">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">TLS Certificates</div>
+              <div class="check-item-desc">
+                Certificate lifecycle: generate private key → create CSR (Certificate Signing Request) → CA signs it → install cert + intermediate chain.
+                <strong>Types:</strong> DV (Domain Validation — automated, Let's Encrypt), OV (Organization Validation), EV (Extended Validation — company name in cert, expensive).
+                <strong>Let's Encrypt:</strong> free DV certs, 90-day expiry, ACME protocol for automation (<code>certbot</code>).
+                <strong>HSTS:</strong> <code>Strict-Transport-Security: max-age=31536000; includeSubDomains; preload</code> — browser refuses HTTP connections. Preload list is baked into browsers.
+                <strong>Certificate Transparency (CT):</strong> all publicly trusted certs must be logged — detects misissuance.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="secrets-management">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Secrets Management</div>
+              <div class="check-item-desc">
+                <strong>Never hardcode secrets</strong> in source code — git history is permanent. <code>git log -S "password"</code> will find it.
+                <strong>Environment variables:</strong> baseline protection. Still end up in process dumps, logs, error reports if not careful.
+                <strong>Secrets managers:</strong> AWS Secrets Manager, HashiCorp Vault, GCP Secret Manager, Azure Key Vault — provide rotation, fine-grained access policies, audit logs, dynamic secrets (DB credentials generated per-request).
+                <strong>Pre-commit hooks:</strong> <code>git-secrets</code>, <code>detect-secrets</code>, <code>truffleHog</code> — scan for secrets before commit.
+                <strong>Rotation:</strong> rotate secrets regularly and immediately on suspected compromise. Design apps to support zero-downtime rotation (dual-read period).
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- Q&A -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🧠</span>
+        <h2>Quick Review</h2>
+      </div>
+      <div class="section-body">
+
+        <details class="qa">
+          <summary>Why shouldn't you store sensitive data in a JWT payload?</summary>
+          <div class="qa-body">
+            <p>JWT payload is <strong>base64url encoded, not encrypted</strong>. Anyone who intercepts the token (or has access to the client) can decode it and read the payload. The signature only proves the payload hasn't been tampered with — it doesn't hide it.</p>
+            <p>If you need to include sensitive claims, use <strong>JWE (JSON Web Encryption)</strong> instead of JWS (JSON Web Signature). Or keep sensitive data server-side in the session store and put only a session ID in the cookie.</p>
+          </div>
+        </details>
+
+        <details class="qa">
+          <summary>What is an IDOR vulnerability and how do you prevent it?</summary>
+          <div class="qa-body">
+            <p><strong>Insecure Direct Object Reference (IDOR):</strong> an API exposes an internal identifier (DB ID) and doesn't verify that the requesting user owns that resource.</p>
+            <p>Example: <code>GET /api/invoices/1234</code> — if any authenticated user can fetch any invoice just by changing the ID, that's IDOR.</p>
+            <p><strong>Prevention:</strong> always check ownership/authorization server-side: <code>SELECT * FROM invoices WHERE id = $id AND user_id = $current_user</code>. Consider using UUIDs instead of sequential IDs (harder to enumerate, but not a security measure on its own). Add authorization middleware that verifies resource ownership for every request.</p>
+          </div>
+        </details>
+
+        <details class="qa">
+          <summary>What's the difference between hashing a password with MD5/SHA1 vs bcrypt?</summary>
+          <div class="qa-body">
+            <p>MD5/SHA1 are <strong>cryptographic hash functions designed to be fast</strong> — an attacker can compute billions of hashes per second on GPU hardware, making brute force feasible.</p>
+            <p><strong>bcrypt/argon2/scrypt</strong> are <em>key derivation functions</em> designed to be <strong>deliberately slow and memory-hard</strong>. bcrypt with cost factor 12 takes ~250ms per hash on modern hardware — 4M× slower than MD5. For a typical user login this is imperceptible; for an attacker brute-forcing a stolen hash database, it's the difference between cracking in hours vs centuries.</p>
+            <p>Also: always add a unique random <strong>salt</strong> per password (bcrypt does this automatically) to prevent rainbow table attacks and ensure identical passwords hash differently.</p>
+          </div>
+        </details>
+
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <a href="../index.html">← All topics</a>
+</footer>
+
+<script src="../js/app.js"></script>
+<script>
+  initChecklist('security');
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('../sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>

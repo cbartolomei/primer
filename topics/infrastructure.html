@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Infrastructure — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <a href="../index.html" class="header-back">← Back</a>
+    <span class="site-logo">pri<span>m</span>er</span>
+    <div class="header-progress">
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="topic-progress-bar" style="width:0%"></div>
+      </div>
+      <div class="progress-label" id="topic-progress-label">0 / 8 concepts covered</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>📦 Infrastructure</h1>
+    <p class="subtitle">Docker, Kubernetes, CI/CD pipelines, deployment strategies, and observability.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <!-- CONTAINERS -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🐳</span>
+        <h2>Containers</h2>
+      </div>
+      <div class="section-body">
+        <ul class="checklist">
+
+          <li class="check-item" data-id="docker-basics">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Docker Fundamentals</div>
+              <div class="check-item-desc">
+                <strong>Image:</strong> read-only, layered filesystem (Union FS). Each <code>RUN</code>/<code>COPY</code> instruction adds a layer.
+                <strong>Container:</strong> running instance of an image + a writable container layer (ephemeral by default).
+                Key Dockerfile instructions: <code>FROM</code>, <code>RUN</code> (shell command, creates a layer), <code>COPY</code> (files into image), <code>EXPOSE</code> (documentation only), <code>ENV</code>, <code>ARG</code>, <code>CMD</code> (default command, overridable), <code>ENTRYPOINT</code> (fixed command, CMD becomes args).
+                <strong>Multi-stage builds:</strong> <code>FROM node:20 AS builder</code> → build → <code>FROM node:20-alpine</code> → <code>COPY --from=builder /app/dist .</code>. Final image only has runtime artifacts, not build tools.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="docker-compose">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Docker Compose</div>
+              <div class="check-item-desc">
+                Defines and runs multi-container applications. Core concepts: <code>services</code>, <code>networks</code>, <code>volumes</code>.
+                <code>depends_on</code> controls start order but <em>not readiness</em> — use health checks with <code>condition: service_healthy</code> or a wait script for true readiness.
+                Shared volumes for local dev (mount source code into container for hot reload). Named volumes for persistent data (DB files).
+                Good for: local development, integration test environments. Not recommended for production orchestration (use Kubernetes).
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="image-best-practices">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Image Best Practices</div>
+              <div class="check-item-desc">
+                <strong>Use specific tags</strong> in production (<code>node:20.11.1-alpine</code>, not <code>node:latest</code>).
+                <strong>Minimize image size:</strong> use alpine/distroless base images. Remove build tools in multi-stage builds. Clean up package caches in the same <code>RUN</code> layer that installed them.
+                <strong>Layer caching:</strong> order Dockerfile instructions from least to most frequently changing. <code>COPY package.json .</code> → <code>RUN npm install</code> → <code>COPY . .</code> — dependency install layer cached unless package.json changes.
+                <strong>Non-root user:</strong> <code>USER node</code> — don't run containers as root.
+                <strong>Vulnerability scanning:</strong> Trivy, Snyk, Docker Scout — integrate into CI.
+                <strong>.dockerignore:</strong> exclude <code>node_modules</code>, <code>.git</code>, secrets from build context.
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- KUBERNETES -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">☸️</span>
+        <h2>Kubernetes</h2>
+      </div>
+      <div class="section-body">
+        <ul class="checklist">
+
+          <li class="check-item" data-id="k8s-core">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Core Resources</div>
+              <div class="check-item-desc">
+                <strong>Pod:</strong> smallest deployable unit. 1+ containers sharing network namespace (same IP, can talk on localhost) and volumes. Ephemeral — don't run pods directly.
+                <strong>Deployment:</strong> manages a ReplicaSet for desired count + rolling updates. Use this for stateless apps.
+                <strong>Service:</strong> stable DNS name + virtual IP routing to pods (via label selector). Types: ClusterIP (internal), NodePort (external via node IP), LoadBalancer (cloud LB).
+                <strong>ConfigMap:</strong> non-secret config (env vars, config files).
+                <strong>Secret:</strong> base64-encoded (not encrypted at rest by default — enable etcd encryption or use external secrets operator). Use sealed-secrets or external-secrets for GitOps.
+                <strong>Namespace:</strong> virtual cluster for resource isolation and quotas.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="k8s-workloads">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Workload Types &amp; Autoscaling</div>
+              <div class="check-item-desc">
+                <strong>Deployment:</strong> stateless apps, rolling updates.
+                <strong>StatefulSet:</strong> stable pod identity (pod-0, pod-1), stable storage. For databases, Kafka, Zookeeper.
+                <strong>DaemonSet:</strong> one pod per node — for log collectors (Fluentd), node monitoring (node-exporter), network plugins.
+                <strong>Job:</strong> runs to completion (batch processing, DB migrations). <strong>CronJob:</strong> scheduled jobs.
+                <strong>HPA (Horizontal Pod Autoscaler):</strong> scales Deployment replicas based on CPU/memory or custom metrics (Prometheus adapter). <strong>VPA (Vertical):</strong> adjusts resource requests/limits. <strong>KEDA:</strong> event-driven autoscaling (scale-to-zero based on queue depth, etc.).
+                Always set resource <code>requests</code> (scheduling) and <code>limits</code> (enforcement). Requests &lt; Limits = Burstable QoS.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="k8s-networking">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Networking &amp; Ingress</div>
+              <div class="check-item-desc">
+                <strong>Ingress:</strong> L7 HTTP(S) routing — route by hostname (<code>api.example.com</code>) or path (<code>/api/</code>) to Services. Requires an Ingress Controller (nginx-ingress, Traefik, AWS ALB Ingress Controller).
+                <strong>kube-dns / CoreDNS:</strong> service discovery via DNS. <code>my-service.my-namespace.svc.cluster.local</code> resolves to the Service ClusterIP.
+                <strong>Network Policies:</strong> firewall rules for pods (default: all pods can talk to all pods). Requires a CNI plugin that supports it (Calico, Cilium).
+                <strong>Pod-to-pod communication:</strong> all pods can reach all other pods by IP across nodes (flat network). Container-to-container in same pod: localhost.
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- CI/CD & OBSERVABILITY -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🔄</span>
+        <h2>CI/CD &amp; Observability</h2>
+      </div>
+      <div class="section-body">
+        <ul class="checklist">
+
+          <li class="check-item" data-id="cicd">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">CI/CD &amp; Deployment Strategies</div>
+              <div class="check-item-desc">
+                Typical pipeline: Code push → Lint/Test → Build image → Security scan → Push to registry → Deploy to staging → Smoke tests → Deploy to prod.
+                <strong>Blue/Green:</strong> two identical environments. Switch traffic from Blue (current) to Green (new) atomically. Instant rollback by switching back. Requires double infrastructure.
+                <strong>Canary:</strong> route X% of traffic to new version. Gradually increase percentage. Catch bugs with limited blast radius. Requires traffic splitting at LB or service mesh layer.
+                <strong>Feature flags</strong> (LaunchDarkly, Unleash): decouple deployment from feature release. Deploy code with flags off; enable for % of users. Rollback = turn flag off.
+                <strong>GitOps</strong> (Argo CD, Flux): Git is the single source of truth for infrastructure state. A controller continuously reconciles cluster state with the Git repo.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="observability">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Observability</div>
+              <div class="check-item-desc">
+                Three pillars: <strong>Logs</strong> (what happened), <strong>Metrics</strong> (how much/fast — quantitative), <strong>Traces</strong> (request journey across services).
+                <strong>Structured logging:</strong> JSON logs with consistent fields (<code>level</code>, <code>timestamp</code>, <code>trace_id</code>, <code>service</code>). Enables filtering and querying in Datadog/Splunk/CloudWatch.
+                <strong>Correlation IDs:</strong> generate a <code>X-Request-ID</code> at the edge, propagate through all service calls — link logs across services for a single user request.
+                <strong>Metrics:</strong> Prometheus (pull-based, time-series) + Grafana (dashboards). The four golden signals: <em>Latency, Traffic, Errors, Saturation</em>.
+                <strong>Distributed tracing:</strong> Jaeger, Zipkin, Datadog APM. <strong>OpenTelemetry</strong>: vendor-neutral instrumentation standard for logs, metrics, and traces.
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- Q&A -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🧠</span>
+        <h2>Quick Review</h2>
+      </div>
+      <div class="section-body">
+
+        <details class="qa">
+          <summary>Why is a Kubernetes Secret not actually secret?</summary>
+          <div class="qa-body">
+            <p>Kubernetes Secrets are base64-encoded, which is encoding, not encryption. Anyone with access to the etcd cluster (or the right RBAC permissions) can decode them trivially: <code>echo "dXNlcjpwYXNz" | base64 -d</code>.</p>
+            <p>To actually protect secrets: (1) <strong>Enable etcd encryption at rest</strong> — Kubernetes supports this natively with an encryption provider config. (2) Use <strong>external secrets</strong> — store secrets in AWS Secrets Manager/Vault and sync them into the cluster with the External Secrets Operator or sealed-secrets. This way the source of truth is the external store (with proper ACLs), not plaintext in your Git repo or etcd.</p>
+          </div>
+        </details>
+
+        <details class="qa">
+          <summary>What's the difference between resource requests and limits in Kubernetes?</summary>
+          <div class="qa-body">
+            <p><strong>Requests:</strong> the amount of resources the scheduler guarantees the container will have. Used for scheduling decisions — a pod is placed on a node with enough unreserved capacity.</p>
+            <p><strong>Limits:</strong> the maximum a container can use. CPU: container is throttled if it exceeds the limit (it doesn't get killed). Memory: container is OOM-killed if it exceeds the limit.</p>
+            <p>If requests = limits → <strong>Guaranteed QoS</strong> (highest priority, never evicted under memory pressure unless it exceeds limit). If requests &lt; limits → <strong>Burstable QoS</strong>. No requests/limits → <strong>BestEffort</strong> (evicted first).</p>
+          </div>
+        </details>
+
+        <details class="qa">
+          <summary>What are the four golden signals and what do they measure?</summary>
+          <div class="qa-body">
+            <p>From the Google SRE Book:</p>
+            <ul>
+              <li><strong>Latency:</strong> time to serve a request. Track both successful and failed request latency. Report as percentiles (p50, p95, p99), never just averages.</li>
+              <li><strong>Traffic:</strong> demand on the system — requests/sec, queries/sec, messages/sec. Baseline for capacity planning.</li>
+              <li><strong>Errors:</strong> rate of requests that fail. Explicit (5xx) + implicit (200 with wrong content). Track error budget against SLO.</li>
+              <li><strong>Saturation:</strong> how "full" a service is — CPU %, memory %, queue depth, thread pool utilization. Most services degrade before reaching 100% saturation.</li>
+            </ul>
+          </div>
+        </details>
+
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <a href="../index.html">← All topics</a>
+</footer>
+
+<script src="../js/app.js"></script>
+<script>
+  initChecklist('infrastructure');
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('../sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>

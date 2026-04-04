@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Message Queues — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <a href="../index.html" class="header-back">← Back</a>
+    <span class="site-logo">pri<span>m</span>er</span>
+    <div class="header-progress">
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="topic-progress-bar" style="width:0%"></div>
+      </div>
+      <div class="progress-label" id="topic-progress-label">0 / 10 concepts covered</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>📨 Message Queues</h1>
+    <p class="subtitle">Async messaging patterns, delivery semantics, Kafka architecture, and RabbitMQ concepts.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <!-- FUNDAMENTALS -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">📋</span>
+        <h2>Fundamentals</h2>
+      </div>
+      <div class="section-body">
+        <ul class="checklist">
+
+          <li class="check-item" data-id="why-queues">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Why Message Queues?</div>
+              <div class="check-item-desc">
+                <strong>Decoupling:</strong> producer and consumer don't need to be running simultaneously or know about each other.
+                <strong>Buffering:</strong> absorb traffic spikes — producer can outpace consumer temporarily without dropping work.
+                <strong>Async processing:</strong> return a response to the user immediately, process the work in the background (email sending, image resizing, report generation).
+                <strong>Fan-out:</strong> one event triggers multiple independent consumers (order placed → billing service + inventory service + notification service).
+                <strong>Reliability:</strong> messages persist until acknowledged — work isn't lost if a consumer crashes.
+                <strong>Backpressure:</strong> queue depth signals that consumers need scaling.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="messaging-patterns">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Messaging Patterns</div>
+              <div class="check-item-desc">
+                <strong>Point-to-Point (Queue):</strong> one producer, one consumer. Each message consumed by exactly one consumer. Good for task distribution — work items shared across a pool of workers.
+                <strong>Publish/Subscribe (Topic):</strong> one producer, many independent consumers (subscribers). Each subscriber gets every message. Good for event broadcasting — "order placed" → all interested services receive it.
+                <strong>Request-Reply:</strong> producer sends a message with a <code>reply-to</code> queue and <code>correlation-id</code>; consumer processes and sends response to reply-to queue. Async RPC pattern.
+                <strong>Competing consumers:</strong> multiple consumers on the same queue — messages distributed across them for horizontal scaling.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="delivery-semantics">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Delivery Semantics</div>
+              <div class="check-item-desc">
+                <strong>At-most-once:</strong> fire and forget. Message may be lost if consumer crashes before processing. No retries. Lowest overhead. OK for metrics, logs where loss is tolerable.
+                <strong>At-least-once:</strong> message redelivered until acknowledged. Consumer may process the same message multiple times (on crash before ack). Requires <em>idempotent consumers</em> — processing the same message twice must be safe (use an idempotency key + deduplication store).
+                <strong>Exactly-once:</strong> hardest guarantee. Requires coordination between producer and broker (Kafka transactions + idempotent producer) and often between broker and consumer's downstream system (transactional outbox). Adds significant overhead.
+                Default to at-least-once + idempotent consumers — it's usually sufficient and much simpler than exactly-once.
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- KAFKA -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🟠</span>
+        <h2>Kafka</h2>
+      </div>
+      <div class="section-body">
+        <ul class="checklist">
+
+          <li class="check-item" data-id="kafka-architecture">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Kafka Architecture</div>
+              <div class="check-item-desc">
+                <strong>Topic:</strong> named, append-only, immutable log. Messages are never deleted on consumption — retained for a configurable period (default 7 days) or size.
+                <strong>Partition:</strong> unit of parallelism and ordering. A topic is split into N partitions. Ordering is guaranteed <em>within</em> a partition, not across the topic. Partition count determines max consumer parallelism.
+                <strong>Offset:</strong> sequential ID of a message within a partition. Consumers track their position via committed offsets.
+                <strong>Broker:</strong> a Kafka server. Multiple brokers form a cluster. <strong>Replication factor:</strong> each partition is replicated across F brokers. Leader partition handles reads/writes; followers replicate.
+                <strong>KRaft</strong> (new): Kafka without ZooKeeper — metadata managed internally.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="kafka-consumers">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Consumer Groups &amp; Offsets</div>
+              <div class="check-item-desc">
+                <strong>Consumer group:</strong> a group of consumers sharing a group ID. Each partition is assigned to exactly <em>one</em> consumer in the group — horizontal scaling. Two groups = two independent consumers of the same data.
+                <strong>Offset commit:</strong> consumer commits offset after processing. On restart, resumes from last committed offset. Committing before processing → at-most-once; committing after → at-least-once.
+                <strong>Consumer lag:</strong> difference between latest produced offset and last committed consumer offset. High lag = consumers falling behind. Monitor per-partition lag in production.
+                <strong>Rebalancing:</strong> triggered when consumers join/leave the group or partitions change. During rebalance, consumption pauses. Cooperative incremental rebalancing (Kafka 2.4+) reduces pause duration.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="kafka-producers">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Producer Config &amp; Guarantees</div>
+              <div class="check-item-desc">
+                <strong>acks:</strong> <code>0</code> = fire and forget (fastest, data loss possible), <code>1</code> = leader acked (leader can fail before replication), <code>all</code>/<code>-1</code> = all in-sync replicas acked (no data loss, slowest).
+                <strong>Batching:</strong> producer buffers messages and sends in batches. <code>linger.ms</code> (wait up to N ms to fill batch) + <code>batch.size</code>. Compress batches with snappy/lz4/zstd.
+                <strong>Idempotent producer</strong> (<code>enable.idempotence=true</code>): broker deduplicates retried sends within a session. Combined with <code>acks=all</code> gives exactly-once within the producer session.
+                <strong>Transactions:</strong> produce to multiple partitions atomically + commit consumer offset atomically — true end-to-end exactly-once.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="kafka-use-cases">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Kafka Use Cases</div>
+              <div class="check-item-desc">
+                <strong>Event streaming:</strong> high-throughput, ordered event log (activity tracking, clickstreams).
+                <strong>Change Data Capture (CDC):</strong> Debezium reads DB binlog/WAL and publishes row changes to Kafka — sync DB changes to other systems without polling.
+                <strong>Log aggregation:</strong> centralize logs from many services into one stream for processing.
+                <strong>Stream processing:</strong> Kafka Streams (JVM library, stateful operations, exactly-once), Apache Flink (more powerful, separate cluster), ksqlDB (SQL over Kafka streams).
+                <strong>Message queue replacement:</strong> for high-throughput, durable, replayable work queues.
+                <strong>Not ideal for:</strong> low-latency (&lt;1ms), complex routing logic (RabbitMQ is better), small message counts with simple needs.
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- RABBITMQ -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🐇</span>
+        <h2>RabbitMQ</h2>
+      </div>
+      <div class="section-body">
+        <ul class="checklist">
+
+          <li class="check-item" data-id="rabbitmq-concepts">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Exchanges, Queues &amp; Bindings</div>
+              <div class="check-item-desc">
+                Producers publish to <strong>exchanges</strong>, not queues. Exchanges route messages to queues via <strong>bindings</strong> (routing rules).
+                Exchange types: <strong>Direct</strong> — route by exact routing key match. <strong>Fanout</strong> — broadcast to all bound queues (ignore routing key). <strong>Topic</strong> — routing key pattern match (<code>logs.*</code>, <code>#.error</code>). <strong>Headers</strong> — match on message header attributes.
+                <strong>Queue properties:</strong> <code>durable</code> (survives broker restart), <code>exclusive</code> (deleted when connection closes), <code>auto-delete</code> (deleted when last consumer unsubscribes).
+                <strong>Message TTL:</strong> expire messages after N ms. <strong>Queue max-length:</strong> cap queue size — overflow goes to DLX.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="dead-letter-queue">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">Dead Letter Queue (DLQ)</div>
+              <div class="check-item-desc">
+                Messages are routed to a <strong>Dead Letter Exchange (DLX)</strong> when: rejected with <code>requeue=false</code>, TTL expires, queue length limit exceeded.
+                <strong>DLQ patterns:</strong> Inspect failed messages manually. Set up retry logic: DLQ consumer reprocesses after a delay (via message TTL + another DLX), up to N retries, then move to a parking lot queue for human review.
+                <strong>Never silently discard errors</strong> — always DLQ failed messages. DLQ depth is a key operational metric to alert on.
+                In Kafka: use a separate dead-letter topic (<code>orders.DLT</code>). Spring Kafka and others handle this natively.
+              </div>
+            </div>
+          </li>
+
+          <li class="check-item" data-id="rabbitmq-vs-kafka">
+            <input type="checkbox">
+            <div class="check-item-content">
+              <div class="check-item-title">RabbitMQ vs Kafka</div>
+              <div class="check-item-desc">
+                <table class="compare-table" style="margin-top:0.5rem">
+                  <thead>
+                    <tr><th></th><th>RabbitMQ</th><th>Kafka</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>Model</td><td>Push-based (broker pushes to consumer)</td><td>Pull-based (consumer polls)</td></tr>
+                    <tr><td>Message retention</td><td>Deleted after ack</td><td>Retained (configurable period)</td></tr>
+                    <tr><td>Replay</td><td>No</td><td>Yes — replay from any offset</td></tr>
+                    <tr><td>Routing</td><td>Flexible (exchange types)</td><td>Simple (partition key)</td></tr>
+                    <tr><td>Throughput</td><td>~50K msg/s</td><td>Millions msg/s</td></tr>
+                    <tr><td>Best for</td><td>Task queues, complex routing, RPC</td><td>Event streaming, CDC, audit log, high throughput</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- Q&A -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-icon">🧠</span>
+        <h2>Quick Review</h2>
+      </div>
+      <div class="section-body">
+
+        <details class="qa">
+          <summary>How do you implement an idempotent consumer?</summary>
+          <div class="qa-body">
+            <p>An idempotent consumer produces the same result whether it processes a message once or N times. Common approaches:</p>
+            <ul>
+              <li><strong>Idempotency key + deduplication store:</strong> include a unique message ID. Before processing, check if ID exists in a store (Redis, DB unique index). If yes, skip. If no, process and store the ID. The check-and-process must be atomic (use a transaction or Redis SET NX).</li>
+              <li><strong>Natural idempotency:</strong> design the operation to be inherently idempotent. <code>UPDATE orders SET status = 'shipped' WHERE id = $id</code> is idempotent — running it twice has the same effect as once.</li>
+              <li><strong>Optimistic locking:</strong> include expected state in the operation — if state has already moved past this event, the update is a no-op.</li>
+            </ul>
+          </div>
+        </details>
+
+        <details class="qa">
+          <summary>Why does Kafka guarantee ordering only within a partition?</summary>
+          <div class="qa-body">
+            <p>Kafka partitions are the unit of replication and sequential writing. Within a partition, messages have monotonically increasing offsets and are written and read in order. Consumers process a partition sequentially.</p>
+            <p>Across partitions, there is no ordering guarantee — different partitions are consumed by different consumers independently, and their relative timing is not coordinated.</p>
+            <p>Practical implication: to guarantee ordering for a specific entity (e.g., all events for <code>order_id=123</code>), route all messages for that entity to the same partition using the entity ID as the partition key. This ensures one consumer processes them in order.</p>
+          </div>
+        </details>
+
+        <details class="qa">
+          <summary>What is the transactional outbox pattern?</summary>
+          <div class="qa-body">
+            <p>A classic problem: you want to update your DB <em>and</em> publish a message atomically. If you update the DB then publish, the app can crash between the two steps. If you publish then update, same problem in reverse.</p>
+            <p>The <strong>transactional outbox</strong> pattern: write the message to an <code>outbox</code> table <em>in the same DB transaction</em> as your business update. A separate relay process (or Debezium CDC) reads the outbox table and publishes to the message broker, then marks the row as sent.</p>
+            <p>This guarantees that a message is published <em>if and only if</em> the business transaction commits. The relay delivers at-least-once, so consumers must still be idempotent.</p>
+          </div>
+        </details>
+
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <a href="../index.html">← All topics</a>
+</footer>
+
+<script src="../js/app.js"></script>
+<script>
+  initChecklist('message-queues');
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('../sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>
