@@ -520,17 +520,35 @@ function resetProgress() {
     }
   }
 
+  // ── Find existing Gist ──────────────────────────────────────
+  // Searches the account's gists for one already containing primer-progress.json
+  // so a second device doesn't accidentally create a duplicate.
+  async function findExistingGist() {
+    try {
+      const gists = await ghFetch('/gists?per_page=100');
+      const found = gists.find(g => g.files && g.files[GIST_FILE]);
+      return found ? found.id : null;
+    } catch {
+      return null;
+    }
+  }
+
   // ── Push ────────────────────────────────────────────────────
   async function push() {
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) return;
-    const body = JSON.stringify({
-      description: GIST_DESC,
-      public: false,
-      files: { [GIST_FILE]: { content: JSON.stringify(getChecks(), null, 2) } },
-    });
     try {
       let gistId = localStorage.getItem(GIST_ID_KEY);
+      // No local gist ID — check GitHub for an existing one before creating
+      if (!gistId) {
+        gistId = await findExistingGist();
+        if (gistId) localStorage.setItem(GIST_ID_KEY, gistId);
+      }
+      const body = JSON.stringify({
+        description: GIST_DESC,
+        public: false,
+        files: { [GIST_FILE]: { content: JSON.stringify(getChecks(), null, 2) } },
+      });
       if (gistId) {
         await ghFetch('/gists/' + gistId, {
           method: 'PATCH', body,
@@ -650,8 +668,10 @@ function resetProgress() {
         localStorage.setItem(TOKEN_KEY, token);
         overlay.remove();
         updateSyncButton('connected');
-        await push();
+        // Pull first so we discover the existing gist ID and merge remote progress,
+        // then push to write any local progress back up.
         await pull();
+        await push();
       } catch (e) {
         errEl.textContent = e.message;
         errEl.hidden = false;
