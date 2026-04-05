@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CI/CD — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="inner">
+    <a href="../backend.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 6 sections understood</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>🔁 CI/CD</h1>
+    <p class="subtitle">From code commit to production — pipelines, deployment strategies, tooling, and the practices that let teams ship dozens of times per day.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <!-- SECTION 1: CI FUNDAMENTALS -->
+    <div class="section" data-id="ci-fundamentals">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🏗️</span><h2>CI Fundamentals</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Continuous Integration is the practice of integrating code into a shared branch frequently — at least daily — and verifying each integration with an automated build and test run. The motivation is economic: bugs found at commit time cost minutes to fix; bugs found in production cost hours of debugging, a potential incident, and eroded user trust. Merge conflicts follow the same curve — a branch that diverges for two weeks accumulates two weeks of conflict debt, paid all at once when the PR opens.</p>
+
+        <h3>Pipeline Anatomy</h3>
+        <p>A CI pipeline is a sequence of stages, each gating the next. A typical pipeline for a web service:</p>
+        <ol>
+          <li><strong>Trigger</strong>: a push, pull request, or scheduled event fires the pipeline.</li>
+          <li><strong>Checkout</strong>: the runner clones the repository at the triggering commit SHA.</li>
+          <li><strong>Lint</strong>: static analysis catches style violations, unused imports, and obvious bugs before any test runs.</li>
+          <li><strong>Unit tests</strong>: fast, isolated tests that don't touch external systems. Measured in milliseconds per test.</li>
+          <li><strong>Integration tests</strong>: tests that spin up real dependencies (a database, a cache). Seconds per test.</li>
+          <li><strong>Build artifact</strong>: compile a binary or build a Docker image from the commit that passed tests.</li>
+          <li><strong>Push to registry</strong>: push the image to a container registry tagged with the commit SHA. This artifact is the deployable unit.</li>
+        </ol>
+        <p>Each stage gates the next. If lint fails, unit tests don't run. If unit tests fail, integration tests don't run. You never build an artifact from broken code.</p>
+
+        <h3>The Test Pyramid</h3>
+        <p>The test pyramid is a heuristic for how many tests to write at each layer. At the base: many unit tests — hundreds or thousands, each running in milliseconds, testing a single function or class in isolation with mocked dependencies. In the middle: fewer integration tests — dozens to hundreds, spinning up real dependencies, running in seconds. At the top: very few end-to-end tests — the full browser or API flow, taking minutes each.</p>
+        <p>Invert the pyramid (few unit tests, many E2E tests) and CI becomes unusably slow. A CI run that takes 45 minutes doesn't give fast feedback — developers stop waiting for it and push again, causing a queue. The goal is a CI run that completes in under 10 minutes.</p>
+
+        <h3>Fail Fast</h3>
+        <p>Run the cheapest checks first. A lint failure that catches an undefined variable takes 30 seconds. There is no reason to start a 5-minute integration test suite until lint passes. Order your pipeline stages by ascending cost: lint → unit tests → integration tests → E2E tests. If any stage fails, later stages are cancelled. The developer gets the fastest possible signal about the cheapest possible failure.</p>
+
+        <h3>Test Parallelization</h3>
+        <p>Split test suites across multiple runners to reduce wall-clock time. GitHub Actions matrix strategy runs the same job with different parameters simultaneously. <code>pytest-xdist</code> distributes Python tests across workers. Jest's <code>--maxWorkers</code> flag parallelizes across CPU cores. The goal is that adding more tests doesn't proportionally increase CI time — horizontal scaling keeps the pipeline fast as the codebase grows.</p>
+
+        <h3>Dependency Caching</h3>
+        <p>Restoring dependencies from cache is dramatically faster than downloading them from the internet on every run. A cache hit on <code>npm install</code> for a large project saves 90 seconds. The cache key is a hash of the lockfile — if <code>package-lock.json</code> doesn't change, the cache is valid. If it does change (a dependency was added or updated), the cache is busted and dependencies are re-fetched.</p>
+        <pre><code>- uses: actions/cache@v3
+  with:
+    path: ~/.npm
+    key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+    restore-keys: ${{ runner.os }}-npm-</code></pre>
+        <p>The <code>restore-keys</code> fallback finds the most recent cache for the OS even when the exact key misses — useful when a dependency is added, because you restore the old cache and only download the delta rather than everything from scratch. The same pattern applies to Go modules (<code>~/go/pkg/mod</code>), pip virtualenvs, and Docker layer caches.</p>
+
+        <h3>Artifact Management</h3>
+        <p>Build once, promote the same artifact through environments. This is a critical principle: never rebuild from source for staging or production. You want to verify that the exact binary that passed CI is the one running in production. Rebuilding introduces the possibility that a non-deterministic build, a transient network failure, or a changed upstream dependency produces a different artifact — one that was never tested.</p>
+        <p>After a successful CI run, push the Docker image to a registry (Docker Hub, Amazon ECR, GitHub Container Registry, Artifactory) tagged with the commit SHA. Staging and production deployments pull that exact tag. The image is the unit of promotion — not the git commit, not the source code.</p>
+
+        <h3>Continuous Delivery vs Continuous Deployment</h3>
+        <p><strong>Continuous Delivery</strong> means the pipeline automatically produces a deployable artifact and deploys it to a pre-production environment (staging, QA), but a human decision gates production. The artifact is always ready; the release is a deliberate act. <strong>Continuous Deployment</strong> means every commit that passes CI is automatically deployed to production — no human gate. This requires high test coverage, feature flags for incomplete work, and robust rollback capability.</p>
+        <p>Most teams land in between: auto-deploy to staging on every merge to main, then either manual approval for production or automatic promotion after a staging soak period with no error-rate increase. The spectrum matters — the closer you get to continuous deployment, the more you invest in test infrastructure, observability, and progressive delivery tooling.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 2: DEPLOYMENT STRATEGIES -->
+    <div class="section" data-id="deployment-strategies">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🚢</span><h2>Deployment Strategies</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>The goal of a deployment strategy is to ship a new version with zero user-visible downtime and the smallest possible blast radius if something goes wrong. The strategies differ in how they manage the transition between old and new, and how quickly you can recover from a bad deploy.</p>
+
+        <h3>Rolling Update</h3>
+        <p>Replace instances one by one, or in small batches. This is the default in Kubernetes Deployments. Kubernetes spins up new pods with the new image before terminating old ones, controlled by <code>maxSurge</code> (how many extra pods can exist during rollout) and <code>maxUnavailable</code> (how many pods can be down). For a 10-replica deployment with <code>maxSurge: 2, maxUnavailable: 1</code>, you'll have between 9 and 12 pods during the rollout.</p>
+        <p>The key constraint: during a rolling update, both the old and new version of your application are serving traffic simultaneously. Your database schema must be backward compatible with both versions. A column renamed in the migration will break the old pods that are still running. This is why schema migrations require the expand/contract pattern (covered below).</p>
+
+        <h3>Blue/Green</h3>
+        <p>Maintain two identical production environments. Blue is the current live environment. Green is the new version, deployed and tested in isolation. When green is ready, flip the load balancer — 100% of traffic instantly moves to green. Rollback is equally instant: flip back to blue. No gradual transition, no compatibility window.</p>
+        <p>The cost is 2× production capacity during the switchover. For stateless services, this is straightforward. For stateful systems, blue/green is more complex — your database is shared between environments, so schema changes still need to be compatible with both application versions. Blue/green is best for large releases where you want a clean, instant escape hatch and can afford the temporary capacity cost.</p>
+
+        <h3>Canary Deployments</h3>
+        <p>Route a small fraction of traffic — typically 1–5% — to the new version, while the majority stays on the old version. Monitor error rates, latency p99, and business metrics on the canary. If the canary looks healthy after a soak period, gradually increase traffic: 1% → 5% → 25% → 100%. If error rates spike, route 0% to the canary and investigate.</p>
+        <p>The blast radius calculation: if 1% of users hit a new bug that causes 500 errors, your overall error rate rises from 0% to 0.01%. That's easy to catch in a dashboard before it affects the other 99%. Compare this to a rolling deploy where the bug reaches 100% of users before you notice the error rate climb. Tools: Argo Rollouts, Istio virtual services, AWS Application Load Balancer weighted target groups, Flagger for automated promotion based on Prometheus metrics.</p>
+
+        <h3>Feature Flags</h3>
+        <p>Deploy code to production in a disabled state and enable it per user, per segment, or by percentage rollout. Feature flags decouple deployment from release — the code ships with the rest of the codebase, but the feature is off until you decide to turn it on. This enables <strong>dark launches</strong>: you can instrument a new code path and measure its performance impact (memory, latency) with real production traffic while zero users see any UI change.</p>
+        <p>The key insight: with feature flags, every deploy is effectively a no-op from the user's perspective. The risk is in the flag flip, which is an instantaneous, reversible action — not a deployment. If a newly enabled feature causes an incident, you flip the flag off. No rollback, no revert commit, no deployment. The incident window is seconds. Tools: LaunchDarkly (SaaS, robust targeting rules), Unleash (open source, self-hostable), Flagsmith (open source with a cloud tier).</p>
+
+        <h3>Smoke Tests and Automated Rollback</h3>
+        <p>After every deployment, run a fast smoke test suite covering only the critical path: can a user log in? Can they perform the core action? Does checkout complete? Smoke tests should finish in under 2 minutes. If they fail, trigger automatic rollback before the bad version affects more users.</p>
+        <p>Argo Rollouts supports metric-based automated rollback: define a success condition (e.g., error rate below 1%, p99 latency below 500ms) and a rollback condition (error rate above 5%). During a canary promotion, Argo continuously queries Prometheus. If the rollback condition is met, Argo automatically aborts the rollout and routes all traffic back to the stable version. Spinnaker supports similar automated rollback via deployment pipelines and Kayenta for canary analysis.</p>
+
+        <h3>Database Migrations: Expand/Contract</h3>
+        <p>Database migrations are the trickiest part of zero-downtime deploys. A naive approach — rename a column, deploy new code — breaks the old pods still running during a rolling deploy. The expand/contract pattern solves this by separating schema changes into multiple phases, each backward compatible with the running application version:</p>
+        <ol>
+          <li><strong>Expand</strong>: add the new column as nullable (so old code that doesn't write to it doesn't fail). Deploy new application code that writes to both the old and new column. At this point, both old and new app code can run against the same schema.</li>
+          <li><strong>Migrate</strong>: run a background job to backfill the new column for all existing rows. This can take hours for large tables — run it offline or in small batches to avoid locking.</li>
+          <li><strong>Contract</strong>: once all rows are backfilled and old application code is fully replaced, add the NOT NULL constraint, remove the old column, and drop any compatibility dual-write logic from the application.</li>
+        </ol>
+        <p>Never rename a column in a single deployment. Never add a NOT NULL column without a default in a single step. Each schema change should be deployable independently from the application change that uses it. Migrations run first; application changes follow.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 3: GITHUB ACTIONS -->
+    <div class="section" data-id="github-actions">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">⚙️</span><h2>GitHub Actions</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>GitHub Actions is GitHub's native CI/CD system. Workflows are YAML files stored in <code>.github/workflows/</code> in your repository, triggered by GitHub events. Because it lives inside GitHub, it has first-class access to your repositories, pull requests, issues, packages, and secrets — no webhook configuration or token management needed to connect to code review.</p>
+
+        <h3>Core Concepts</h3>
+        <ul>
+          <li><strong>Workflow</strong>: a YAML file defining the automation. One or more workflows per repository.</li>
+          <li><strong>Event</strong>: what triggers the workflow — a push, a pull request, a release, a schedule, or a manual dispatch.</li>
+          <li><strong>Job</strong>: a set of steps that run sequentially on a single runner. Jobs within a workflow run in parallel by default; use <code>needs</code> to create dependencies between them.</li>
+          <li><strong>Step</strong>: an individual shell command (<code>run:</code>) or a reusable action (<code>uses:</code>). Steps within a job share the runner's filesystem and environment.</li>
+          <li><strong>Action</strong>: a reusable unit of automation — can be from the GitHub Marketplace, a public repo, or a local action in your own repository. Actions abstract common tasks: checking out code, setting up a language runtime, building Docker images, deploying to a cloud provider.</li>
+          <li><strong>Runner</strong>: the virtual machine that executes a job. GitHub provides hosted runners (Ubuntu, Windows, macOS). You can also run self-hosted runners on your own infrastructure.</li>
+        </ul>
+
+        <h3>Triggers</h3>
+        <pre><code>on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 2 * * *'   # nightly at 2am
+  workflow_dispatch:        # manual trigger with optional inputs</code></pre>
+        <p>The <code>pull_request</code> trigger runs on PRs targeting the specified branch — the most common pattern for CI validation before merge. <code>workflow_dispatch</code> adds a "Run workflow" button in the GitHub UI, useful for release pipelines or ad-hoc jobs. <code>push</code> with <code>paths:</code> filtering runs the workflow only when specific files change — useful for a monorepo where you don't want to run every service's tests on every commit.</p>
+
+        <h3>A Realistic CI Workflow</h3>
+        <pre><code>name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - uses: actions/cache@v3
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+      - run: go test ./...
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost/testdb
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          push: true
+          tags: ghcr.io/${{ github.repository }}:${{ github.sha }}</code></pre>
+        <p>The <code>services</code> block spins up a Postgres container as a sidecar for the test job — accessible on <code>localhost</code> from steps. The <code>health-cmd</code> option makes the step wait until Postgres is accepting connections before running tests. The <code>build</code> job uses <code>needs: test</code> to ensure it only runs after tests pass. The image is tagged with <code>github.sha</code> — a content-addressable, immutable tag that maps directly to the commit that was tested.</p>
+
+        <h3>Matrix Builds</h3>
+        <pre><code>strategy:
+  matrix:
+    go-version: ['1.21', '1.22', '1.23']
+    os: [ubuntu-latest, macos-latest]
+runs-on: ${{ matrix.os }}</code></pre>
+        <p>The matrix strategy expands into multiple parallel jobs — one per combination of values. This example runs 6 jobs: 3 Go versions × 2 operating systems. All run simultaneously. Use matrix builds to verify compatibility across language versions before a major dependency upgrade, or to catch OS-specific bugs in libraries that use CGo or platform syscalls.</p>
+
+        <h3>Reusable Workflows</h3>
+        <p>A workflow triggered by <code>workflow_call</code> can be called from other workflows, even across repositories in the same organization. This is the right abstraction for shared CI/CD logic — define your organization's standard lint/test/deploy workflow once, and each service's workflow calls it rather than duplicating the YAML. Changes to the shared workflow propagate to all callers. Inputs and secrets can be passed from the caller to the called workflow.</p>
+
+        <h3>OIDC for Cloud Authentication</h3>
+        <p>Instead of storing long-lived cloud credentials as GitHub secrets (which need rotation, can be leaked in logs, and represent persistent blast radius), use OpenID Connect (OIDC). GitHub Actions can prove to AWS, GCP, or Azure that a workflow is running from a specific repository, branch, and environment. The cloud provider issues a short-lived token (typically valid for 15 minutes) that grants only the necessary permissions. There are no static credentials to rotate or accidentally commit. AWS supports this via IAM OIDC identity providers; GCP via Workload Identity Federation.</p>
+
+        <h3>Self-Hosted Runners</h3>
+        <p>GitHub-hosted runners are isolated, ephemeral VMs with no access to your private network. When your jobs need to access internal resources — a private database, an on-prem service, an internal artifact registry — you need self-hosted runners. Other reasons: specialized hardware (GPU instances for ML, ARM for Apple Silicon compatibility testing), cost at scale (GitHub-hosted runners are billed per minute and become expensive for organizations with hundreds of engineers), or regulatory requirements that prohibit running builds on shared infrastructure.</p>
+        <p>Self-hosted runners register with GitHub and poll for queued jobs. They run on any infrastructure: EC2, GKE, bare metal. Actions Runner Controller (ARC) manages self-hosted runners as Kubernetes pods, scaling them automatically based on job queue depth.</p>
+
+        <h3>Environments and Protection Rules</h3>
+        <p>GitHub Environments let you define named deployment targets (staging, production) with associated rules. Protection rules can require approval from specific reviewers before a job targeting that environment runs — this is the human gate for production deployments. Wait timers add a minimum soak period. Secrets scoped to an environment are only visible to jobs that target it, so your production database credentials are never available to a job running on a PR branch.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 4: JENKINS & ALTERNATIVES -->
+    <div class="section" data-id="cicd-tooling">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔧</span><h2>Jenkins &amp; Alternatives</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>CI/CD tooling is a crowded space. The right choice depends on where your code lives, your compliance requirements, your team's ops capacity, and your scale. Here's how the major options compare.</p>
+
+        <h3>Jenkins</h3>
+        <p>Jenkins is the grandfather of CI/CD — open source, self-hosted, and infinitely extensible via roughly 1,800 plugins. <strong>Jenkinsfile</strong> defines pipelines as code in a Groovy DSL with two styles: declarative (structured, opinionated, recommended for new pipelines) and scripted (full Groovy, maximum flexibility for complex logic). The file lives in the repository alongside application code, giving you version control, peer review, and history for pipeline changes.</p>
+        <p>The value proposition: Jenkins runs on your infrastructure and can reach anything on your network — private databases, on-prem services, internal APIs, air-gapped environments. The ecosystem is mature and the internet is full of examples for any integration you need. <strong>Shared Libraries</strong> let you define reusable pipeline steps in a separate repository and import them across all your Jenkinsfiles — the equivalent of GitHub Actions' reusable workflows.</p>
+        <p>The cost: you own everything. Jenkins itself is infrastructure. You manage the server, apply plugin updates (carefully — plugins break each other), handle security patches, configure agents, and scale capacity. Jenkins becomes a service your platform team runs for the rest of engineering. When to choose Jenkins: enterprises with complex compliance requirements that mandate on-prem build infrastructure, organizations already deeply invested in the ecosystem, or environments where no external network access is permitted.</p>
+
+        <h3>GitLab CI</h3>
+        <p>GitLab CI is deeply integrated with GitLab's code review, security scanning, container registry, and deployment tracking. The pipeline is defined in <code>.gitlab-ci.yml</code> at the repository root. Pipelines are organized into stages and jobs — all jobs in a stage run in parallel; stages run sequentially. <strong>GitLab Runners</strong> are the execution agents and can be shared across projects or dedicated to a specific project.</p>
+        <p>If your organization is on GitLab, the integration is seamless — merge request pipelines show inline CI status, the built-in container registry means no external registry configuration, and deployment tracking links pipeline runs to environments. <strong>Auto DevOps</strong> can detect your application's tech stack and automatically configure a sensible CI/CD pipeline without any YAML — practical for teams without dedicated platform engineering. GitLab's security scanning (SAST, DAST, dependency scanning) integrates directly into merge request pipelines.</p>
+
+        <h3>CircleCI</h3>
+        <p>CircleCI is a hosted CI service with strong parallelism and Docker support. <strong>Orbs</strong> are reusable configuration packages in the CircleCI ecosystem — analogous to GitHub Actions actions. The standout features: <strong>automatic test splitting</strong> distributes your test suite across parallel runners based on timing history (not manual sharding), and <strong>Docker Layer Caching (DLC)</strong> caches Docker build layers between runs, dramatically reducing image build time. <strong>Resource classes</strong> let you specify CPU and RAM per job — useful when some jobs need 8 CPUs for compilation and others need only 1.</p>
+        <p>CircleCI works well for teams that want more control and performance than GitHub Actions provides but don't want the operational burden of running Jenkins. The hosted model means CircleCI manages the infrastructure; you manage the pipeline configuration.</p>
+
+        <h3>Buildkite</h3>
+        <p>Buildkite uses a hybrid model: SaaS control plane plus your own agents. Buildkite orchestrates the pipeline and provides the UI and API; you run the agents on your own infrastructure (cloud VMs, Kubernetes pods, on-prem servers, wherever). Jobs run on your agents with full access to your network, but you don't manage the orchestration layer. This gives you the network access of self-hosted Jenkins with the operational simplicity of a SaaS product.</p>
+        <p>Pipelines can be defined in YAML or generated dynamically at runtime — a job can output YAML that defines subsequent jobs, enabling powerful patterns like building a pipeline that reflects the actual changed services in a monorepo. Popular at organizations with strict data locality requirements, bespoke hardware needs, or those that have outgrown GitHub Actions but don't want to run Jenkins.</p>
+
+        <h3>Comparison</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Tool</th>
+              <th>Hosting</th>
+              <th>Best for</th>
+              <th>Self-hosted runners</th>
+              <th>Pricing model</th>
+              <th>Standout feature</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>GitHub Actions</strong></td>
+              <td>GitHub SaaS</td>
+              <td>Teams already on GitHub</td>
+              <td>Yes (self-hosted runners)</td>
+              <td>Free tier + per-minute billing</td>
+              <td>Native GitHub integration, OIDC cloud auth</td>
+            </tr>
+            <tr>
+              <td><strong>GitLab CI</strong></td>
+              <td>GitLab SaaS or self-hosted</td>
+              <td>Teams on GitLab, compliance-heavy orgs</td>
+              <td>Yes (GitLab Runners)</td>
+              <td>Included with GitLab tier</td>
+              <td>Auto DevOps, built-in security scanning</td>
+            </tr>
+            <tr>
+              <td><strong>CircleCI</strong></td>
+              <td>Hosted SaaS</td>
+              <td>Teams wanting fast parallelism without ops</td>
+              <td>Yes (self-hosted runners)</td>
+              <td>Credit-based, per-compute-minute</td>
+              <td>Auto test splitting, Docker Layer Caching</td>
+            </tr>
+            <tr>
+              <td><strong>Jenkins</strong></td>
+              <td>Self-hosted only</td>
+              <td>On-prem requirements, existing investment</td>
+              <td>Native (agents)</td>
+              <td>Free (you pay for infrastructure)</td>
+              <td>Unlimited extensibility, 1,800+ plugins</td>
+            </tr>
+            <tr>
+              <td><strong>Buildkite</strong></td>
+              <td>Hybrid (SaaS control plane + your agents)</td>
+              <td>Orgs needing self-hosted compute without Jenkins ops</td>
+              <td>Required (you run agents)</td>
+              <td>Per-agent per-month</td>
+              <td>Dynamic pipelines, full network access</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Concepts That Transfer Across All Tools</h3>
+        <p>Regardless of which tool you use, the same principles apply:</p>
+        <ul>
+          <li><strong>Secrets management</strong>: never hardcode credentials in pipeline YAML or application code. Inject secrets at runtime via the tool's secrets store (GitHub encrypted secrets, Jenkins credentials store, CircleCI environment variables). Secrets should never appear in build logs — use masking.</li>
+          <li><strong>Artifact promotion</strong>: build once, promote the same artifact through environments. The Docker image tagged <code>:abc1234</code> that passed CI is the same image deployed to staging, then promoted to production.</li>
+          <li><strong>Environment gates</strong>: staging deployments are automatic; production deployments require approval, a soak period, or both. The gate is the only difference between environments — not different build processes.</li>
+          <li><strong>Pipeline as code</strong>: Jenkinsfile, <code>.github/workflows/</code>, <code>.gitlab-ci.yml</code>, <code>.buildkite/pipeline.yml</code> — pipeline definitions live in the repository, version-controlled alongside application code. Pipeline changes go through code review. You can git blame a pipeline regression.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- SECTION 5: GITOPS -->
+    <div class="section" data-id="gitops">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔄</span><h2>GitOps</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>GitOps is a deployment model where a git repository is the single source of truth for the desired state of a system — typically a Kubernetes cluster. You never apply changes manually. You open a pull request, get it reviewed, merge it, and an agent running inside the cluster reconciles the live state with the git state. The git history is the complete, auditable record of every change to production.</p>
+
+        <h3>Pull vs Push Model</h3>
+        <p>Traditional CI/CD pipelines use a <strong>push model</strong>: after a successful build, the CI system runs <code>kubectl apply</code> or <code>helm upgrade</code> to update the cluster. This requires the CI system to hold cluster credentials — typically a kubeconfig or service account token with significant permissions. A compromised CI system (a malicious third-party action, a leaked secret) means cluster access.</p>
+        <p>GitOps uses a <strong>pull model</strong>: an agent runs inside the cluster with a Kubernetes ServiceAccount. The agent polls the git repository and applies changes from within the cluster. No external system holds cluster credentials. The CI system's job ends at pushing a new image tag to a registry or updating a manifest in git — it never touches the cluster directly. The attack surface is inverted: to affect the cluster, an attacker needs either cluster access (to compromise the agent) or write access to the git repository (protected by code review and branch protection), not CI system credentials.</p>
+
+        <h3>Argo CD</h3>
+        <p>Argo CD is the most widely adopted GitOps tool for Kubernetes. Its core resource is the <code>Application</code>: a declaration of what git repository and path contain the desired manifests, and what cluster and namespace they should be applied to.</p>
+        <pre><code>apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: my-api
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/myorg/k8s-manifests
+    targetRevision: HEAD
+    path: apps/my-api/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: production
+  syncPolicy:
+    automated:
+      prune: true      # delete resources removed from git
+      selfHeal: true   # revert manual changes</code></pre>
+        <p><code>prune: true</code> means that if you delete a manifest from git, Argo CD deletes the corresponding resource from the cluster. Without it, removed manifests leave orphaned resources. <code>selfHeal: true</code> means that if someone manually modifies a resource in the cluster (via <code>kubectl edit</code> or the Kubernetes dashboard), Argo CD will revert the change within minutes. Without it, Argo CD detects the drift but doesn't act — it alerts instead.</p>
+        <p><strong>Health assessment</strong>: Argo CD understands the health semantics of common Kubernetes resources. A Deployment is healthy when all desired replicas are available. A Service is healthy when it exists. An Ingress is healthy when it has an address. You can define custom health checks for CRDs. The Argo CD UI shows the sync status (is the cluster matching git?) and health status (are the resources running correctly?) for every resource in every Application.</p>
+        <p><strong>App of Apps</strong>: a pattern where one root Application manages a set of child Applications. The root Application syncs a directory of Application manifests; Argo CD creates all the child Applications. This is the standard approach for multi-service deployments — a single PR to the root can add or remove entire services from a cluster.</p>
+
+        <h3>Drift Detection</h3>
+        <p>Argo CD polls the cluster and the git repository every 3 minutes by default (configurable). If it detects a difference between the live state and the git state — an unexpected resource annotation, a manually scaled Deployment, a deleted ConfigMap — it marks the Application as <em>OutOfSync</em>. With <code>selfHeal: true</code>, it immediately reconciles back to git. With <code>selfHeal: false</code>, it raises an alert but takes no action, letting the team investigate before reverting. This drift detection is what makes GitOps auditable: any unauthorized or manual change is surfaced within minutes.</p>
+
+        <h3>Image Update Automation (Flux)</h3>
+        <p>A gap in naive GitOps: who updates the image tag in the manifest repo when a new image is built? One option is to have the CI pipeline open a PR to the manifest repo. Flux provides a more automated path: the <strong>image reflector controller</strong> watches a container registry and detects new tags matching a pattern (e.g., all tags on the main branch). The <strong>image automation controller</strong> then commits an image tag update directly to the manifest repository (or opens a PR for review), triggering Argo CD or Flux to sync the new image to the cluster. Full GitOps for image promotion — the registry push is the input; the cluster update is the automated output.</p>
+
+        <h3>Multi-Cluster Management</h3>
+        <p>A single Argo CD control plane can manage multiple clusters. Register each remote cluster via the Argo CD CLI (it stores a service account token for each). Define Applications targeting different <code>destination.server</code> values — one for staging, one for production, one for a regional cluster. The Argo CD UI gives a unified view of sync and health status across all clusters. This is the standard pattern for organizations running Kubernetes in multiple regions or with distinct staging and production clusters.</p>
+
+        <h3>Repository Structure</h3>
+        <p><strong>Monorepo</strong>: all Kubernetes manifests for all services and environments in one repository, organized by application and environment (e.g., <code>apps/my-api/staging/</code>, <code>apps/my-api/production/</code>). Simpler to start, easy to see all changes to the cluster in one pull request, easier cross-service coordination (update an ingress config affecting multiple services in one commit). Can become hard to navigate at large scale.</p>
+        <p><strong>Polyrepo</strong>: a separate manifest repository per service, owned by the team that owns the service. Better team autonomy, cleaner access control (a team's CI pipeline only has write access to its own manifest repo). The tradeoff: cross-service changes require coordinating PRs across multiple repositories, and there's no single place to view the full cluster state in git.</p>
+        <p>Most teams start with a monorepo and split into polyrepos as team boundaries and scale demand it. The Argo CD ApplicationSet controller automates managing many Applications from a single template — useful in a polyrepo model to avoid manually creating an Application for every new service.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 6: TRUNK-BASED DEVELOPMENT -->
+    <div class="section" data-id="trunk-based-dev">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🌿</span><h2>Trunk-Based Development</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Trunk-based development (TBD) is a source control practice where all developers integrate their changes to a single shared branch — the trunk, or <code>main</code> — at least once per day, ideally multiple times. Feature branches exist, but they live for one to two days at most. Every commit to main is potentially deployable. This is how Google, Meta, and most hyperscalers operate at scale.</p>
+
+        <h3>The Problem with Long-Lived Branches</h3>
+        <p>Long-lived feature branches accumulate <strong>integration debt</strong>. A branch that diverges for two weeks carries two weeks of merge conflicts with it — conflicts with other branches that were merged to main while yours was in development. Teams working this way begin to dread merging. They delay it because it's painful. Features slip because "the merge isn't done yet." The merge itself becomes a multi-day event. And crucially, none of the tests on the branch reflect how the code interacts with the rest of the codebase — that integration happens at merge time, when it's most expensive to fix.</p>
+        <p>The pattern is self-reinforcing: painful merges lead to fewer merges, which leads to longer-lived branches, which leads to more painful merges. TBD breaks the cycle by making integration continuous rather than deferred.</p>
+
+        <h3>TBD Principles</h3>
+        <ul>
+          <li><strong>Integrate to main at least daily</strong>: ideally multiple times per day. Small, frequent integrations mean small, resolvable conflicts.</li>
+          <li><strong>Branches live max one to two days</strong>: if a feature isn't done in two days, it ships behind a feature flag, not on a branch.</li>
+          <li><strong>Every commit to main is potentially deployable</strong>: main must always be green. A failing test on main is everyone's emergency, not just the author's.</li>
+          <li><strong>The team owns main's health</strong>: a broken main blocks all other engineers. Fix it immediately or revert — don't leave it broken overnight.</li>
+        </ul>
+
+        <h3>Feature Flags as the Enabler</h3>
+        <p>The question teams always ask: "How do I ship a half-built feature to main?" The answer is feature flags. The new checkout page redesign can live in main behind a flag for three weeks — disabled for all users. Engineers merge their work daily. The flag is off. Users see nothing. When the feature is ready, the flag is flipped. If it breaks production, the flag is flipped back. No revert commit, no hotfix branch, no deployment — just a flag change, which takes seconds and is instantly reversible.</p>
+        <pre><code>// Using a flag service
+if flags.IsEnabled(ctx, "new-checkout-v2", userID) {
+    return newCheckoutHandler(w, r)
+}
+return legacyCheckoutHandler(w, r)</code></pre>
+        <p>Feature flags transform deployment risk into flag-flip risk. Deployments become boring. The risk surface is the flag flip, which is reversible in seconds. This is why continuous deployment — deploying every commit to main automatically — is feasible at companies that do it well: the deployments themselves carry little risk because incomplete work is always flag-guarded.</p>
+
+        <h3>Branch Policies Under TBD</h3>
+        <p>TBD doesn't mean no branches — it means short-lived branches with a defined maximum lifetime. Common policies: feature branches named <code>feature/username/description</code>, required CI passing before merge, no branch older than two days (auto-labeled stale, auto-closed after three days). Some teams practice branchless development — committing directly to main with pair programming serving as the code review mechanism. This is practical for small, senior teams with very high test coverage but unusual in most organizations.</p>
+        <p>Required CI before merge is non-negotiable in TBD. If CI is untrustworthy (flaky tests, a suite that takes 45 minutes), engineers bypass the requirement or merge broken code. TBD depends on a fast, reliable CI pipeline. Invest in flaky test elimination and parallelization before adopting TBD.</p>
+
+        <h3>Release Branches</h3>
+        <p>TBD uses release branches, but differently from Gitflow. When you need to stabilize for a release — typically for mobile apps or packaged software with a defined release window — cut a release branch from main at the point you want to stabilize. Only bug fixes are cherry-picked to the release branch. New feature development continues on main unimpeded. After the release ships, the branch is deleted. There are no permanent long-lived branches in TBD.</p>
+        <p>For web services that deploy continuously, release branches are usually unnecessary — you deploy directly from main, and "stabilization" means slowing down your deployment cadence during a sensitive period, not creating a branch.</p>
+
+        <h3>Gitflow Comparison</h3>
+        <p>Gitflow defines a branching model with permanent branches: <code>main</code> (production), <code>develop</code> (integration), feature branches (off develop), release branches (off develop, merged to both main and develop), and hotfix branches (off main). It was designed for software with discrete versioned releases — packaged software, mobile apps, SDKs — where you ship a version and then maintain it.</p>
+        <p>Gitflow doesn't fit web services that deploy dozens of times per day. The <code>develop</code> branch is a holding area that delays integration. The permanent release branch means you're maintaining parallel histories. The model was designed when deploying software meant shipping a CD — it optimizes for the wrong thing when you're deploying to servers you control. The moment you can fix a bug by deploying to production, Gitflow's multi-branch release management becomes overhead with no corresponding benefit.</p>
+
+        <h3>Practical Adoption Path</h3>
+        <p>You can't flip a team from Gitflow to TBD overnight. A progressive adoption path:</p>
+        <ol>
+          <li><strong>Enforce branch lifetime limits</strong>: auto-label PRs older than three days as stale. This surfaces the problem without forcing an immediate behavior change.</li>
+          <li><strong>Invest in test coverage and CI speed</strong>: TBD requires a trustworthy, fast CI pipeline. Fix flaky tests. Parallelize the slow suites. Get CI under 10 minutes. You need engineers to trust that green CI means good code.</li>
+          <li><strong>Introduce feature flags</strong>: start with one or two new features behind flags. Show the team that incomplete work can safely live in main. This is the mental model shift that makes TBD feel safe.</li>
+          <li><strong>Shorten branch lifetime progressively</strong>: go from "no limit" to "one week max" to "three days max" to "one day max." Each reduction should feel natural because CI is fast and feature flags absorb the incompleteness.</li>
+          <li><strong>Measure cycle time</strong>: track the time from first commit to production deployment. This is your health metric. TBD should reduce it from days to hours. If it doesn't, find the bottleneck — usually CI speed, code review latency, or deployment pipeline complexity.</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- GO DEEPER -->
+    <div class="section" style="border-style:dashed;">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
+      </div>
+      <div class="section-body">
+        <div class="resource-list">
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">GitHub Actions Documentation</div><div class="resource-author">docs.github.com/en/actions</div><div class="resource-desc">The workflow syntax reference and the quickstart guides are the fastest path in. Read the security hardening guide — it covers OIDC, minimum token permissions, and secret management. The reusable workflows and matrix builds sections unlock the most powerful patterns.</div></div></div>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">Argo CD Documentation</div><div class="resource-author">argo-cd.readthedocs.io</div><div class="resource-desc">The Getting Started guide has you managing a real application in under 30 minutes. Then read the Application spec reference, the sync policies section, and the App of Apps pattern. The best reference for understanding how GitOps works in practice on Kubernetes.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Trunk-Based Development</div><div class="resource-author">trunkbaseddevelopment.com</div><div class="resource-desc">The canonical reference for TBD, maintained by Paul Hammant. Covers the full spectrum from solo committing to trunk to scaled TBD with short-lived feature branches. The "observed TBD" section documents how Google, Facebook, and others practice it at scale. Short, well-organized, read it in one sitting.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Feature Toggles (aka Feature Flags)</div><div class="resource-author">martinfowler.com/articles/feature-toggles.html</div><div class="resource-desc">Martin Fowler's comprehensive treatment of feature flags — taxonomy (release toggles vs experiment toggles vs ops toggles vs permission toggles), implementation patterns, and the management challenges that arise when you have hundreds of flags. Required reading before building flag infrastructure at scale.</div></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <a href="infrastructure.html">← Infrastructure</a>
+    <a href="../backend.html" class="center">All modules</a>
+    <a href="message-queues.html">Message Queues →</a>
+  </div>
+</footer>
+
+<script src="../js/app.js"></script>
+<script>
+  initSections('cicd');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
+</script>
+</body>
+</html>

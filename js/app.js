@@ -11,7 +11,7 @@ const TIERS = [
   {
     label: 'Tier 2 — Important',
     desc: 'Foundational and practical. Build this in parallel.',
-    ids: ['caching', 'http-networking', 'api-design', 'security', 'infrastructure', 'message-queues'],
+    ids: ['caching', 'http-networking', 'api-design', 'security', 'infrastructure', 'cicd', 'message-queues'],
   },
 ];
 
@@ -76,9 +76,17 @@ const TOPICS = [
     id: 'infrastructure',
     title: 'Infrastructure',
     icon: '📦',
-    desc: 'Docker, Kubernetes, CI/CD, deployment strategies, observability tooling',
+    desc: 'Docker, Kubernetes, containers, orchestration, and production runtime infrastructure',
     path: 'topics/infrastructure.html',
-    total: 3,
+    total: 2,
+  },
+  {
+    id: 'cicd',
+    title: 'CI/CD',
+    icon: '🔁',
+    desc: 'Pipelines, deployment strategies, GitHub Actions, GitOps, and trunk-based development',
+    path: 'topics/cicd.html',
+    total: 6,
   },
   {
     id: 'message-queues',

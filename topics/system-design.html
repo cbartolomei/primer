@@ -128,6 +128,37 @@
 
         <h3>Clocks Are Lies</h3>
         <p>Physical clocks in distributed systems drift, jump (NTP sync), and are unreliable for ordering events. Don't use wall-clock timestamps to determine ordering across nodes — you will eventually have events that appear to go backward. Solutions: <strong>Lamport clocks</strong> (logical counters that capture happened-before relationships), <strong>vector clocks</strong> (per-node counters that track causality), or <strong>hybrid logical clocks</strong> (HLC — combine physical and logical). Google Spanner uses atomic clocks and GPS to provide TrueTime, bounding clock uncertainty to ~7ms.</p>
+
+        <h3>When Strong Consistency Is Required</h3>
+        <p>Some domains cannot tolerate stale reads — the cost of seeing outdated data is correctness failure, not just a degraded user experience. These situations <em>require</em> linearizability or at minimum strong consistency, even at the cost of latency and availability.</p>
+        <ul>
+          <li><strong>Bank account balances — the double-spend problem.</strong> If two ATMs simultaneously read a stale balance of $100 and both approve a $90 withdrawal, the customer leaves with $180. The fix is a linearizable read-modify-write (or a serializable transaction) so only one withdrawal can observe the pre-debit balance.</li>
+          <li><strong>Inventory systems — overselling.</strong> Airline seats, concert tickets, and limited-edition product drops all share the same failure mode: two buyers read "1 seat remaining," both click purchase, both succeed, and now you've sold one seat twice. A strongly consistent check-and-decrement (or a compare-and-swap on inventory count) prevents this.</li>
+          <li><strong>Leader election and distributed locks.</strong> etcd and ZooKeeper provide strongly consistent primitives specifically because "probably one leader" is catastrophic — two leaders writing to the same shard will corrupt data. You need the guarantee that at any moment exactly one node holds the lock.</li>
+          <li><strong>Configuration and feature flags.</strong> If a config change rolls out eventually, you can end up with half your fleet running the old rate-limit value and half the new one — producing unpredictable, hard-to-debug behavior. Configuration systems (etcd, Consul) use quorum reads so all nodes see a consistent view.</li>
+        </ul>
+        <p><strong>The cost:</strong> strong consistency requires quorum reads (majority of replicas must agree), which is fine within a single data center (~1–5ms) but painful across regions — cross-region round trips add <strong>100–300ms of latency</strong>. This is why global strong consistency is reserved for operations that genuinely need it.</p>
+
+        <h3>When Eventual Consistency Is Fine (and Preferred)</h3>
+        <p>Most data in production systems does not require linearizability. For the majority of reads, seeing data that is a few hundred milliseconds stale is completely acceptable — and choosing eventual consistency unlocks lower latency, higher availability, and horizontal read scale.</p>
+        <ul>
+          <li><strong>Social media feeds.</strong> If your follower sees your tweet 500ms after you post it, nothing breaks. Twitter/X, Facebook, and Instagram feeds are all eventually consistent. Strict ordering of whose post appears first is a product decision, not a correctness requirement.</li>
+          <li><strong>Shopping carts.</strong> Amazon's famous Dynamo paper explicitly uses the shopping cart as the motivating example for AP design. The cart is eventually consistent — two browser tabs can diverge. <em>Checkout</em>, however, enforces strong consistency (inventory check, payment authorization). Different operations on the same product get different consistency models.</li>
+          <li><strong>DNS propagation.</strong> DNS is eventually consistent by design. TTL is the explicit knob for controlling how stale a record can be. Operators accept that a newly published record may take minutes to hours to propagate globally — this is a deliberate trade-off for scalability.</li>
+          <li><strong>Search indexes.</strong> Elasticsearch indexes documents with a propagation delay of roughly 1 second (the default <code>refresh_interval</code>). A document written to the primary shard is not immediately visible to search. For most search use cases this is completely acceptable.</li>
+          <li><strong>View and like counters.</strong> YouTube's view count is explicitly approximate. The difference between "1,000,423 views" and "1,000,424 views" is meaningless to every stakeholder. Counters are typically implemented as eventually consistent aggregations — exact precision would require serialized increments that can't scale.</li>
+          <li><strong>Product catalogs and read-heavy reference data.</strong> Prices and product descriptions update infrequently, and reads vastly outnumber writes. Caching this data with eventual consistency (CDN edge caches, replica reads) reduces load on the primary and cuts global read latency dramatically.</li>
+        </ul>
+        <p><strong>The benefit:</strong> eventual consistency enables local reads (no quorum required), higher write throughput, graceful degradation during network partitions, and the ability to scale reads horizontally by adding replicas without impacting write latency.</p>
+
+        <h3>The Real-World Hybrid</h3>
+        <p>Most production systems are neither purely CP nor purely AP — they use <strong>strong consistency for writes</strong> and <strong>eventual consistency for reads</strong>, tuned per operation based on what each call actually requires.</p>
+        <ul>
+          <li><strong>Write to primary, read from replicas.</strong> The canonical pattern: all writes go to a single primary (strongly consistent), and reads are served from one or more replicas that lag behind by milliseconds. This is the default configuration for Postgres streaming replication, MySQL read replicas, and most managed cloud databases.</li>
+          <li><strong>Read-your-own-writes consistency.</strong> A common middle ground: after a user performs a write, route <em>that user's</em> subsequent reads to the primary (or a replica that has acknowledged the write) for a short window — typically a few seconds. Everyone else continues to read from potentially stale replicas. This eliminates the jarring UX of posting a comment and not seeing it immediately, without requiring all reads to be strongly consistent.</li>
+          <li><strong>Session consistency.</strong> A weaker but pragmatic guarantee: within a single session, reads always reflect your own writes. You will never see your own data go backward. Reads from other sessions may still be stale. Many systems implement this by pinning a session to a specific replica and tracking a replication watermark.</li>
+        </ul>
+        <p>The practical takeaway: <em>identify the operations in your system that require linearizability</em> (usually writes to shared mutable state with a uniqueness or ordering constraint) and apply strong consistency there. Apply eventual consistency everywhere else. This division of labor — rather than a single consistency model for the entire system — is what allows large-scale systems to be both correct and fast.</p>
       </div>
     </div>
 
@@ -193,9 +224,42 @@ await sleep(jitter);</code></pre>
         <p><strong>CQRS (Command Query Responsibility Segregation)</strong>: separate the write model (commands that mutate state) from the read model (queries that return views). The write side stores normalized state; the read side maintains denormalized, query-optimized projections built from the write side's events. Enables separate scaling of reads and writes, and lets each side be optimized independently. Complexity cost: you now maintain two models and a synchronization mechanism.</p>
         <p><strong>Event Sourcing</strong>: instead of storing current state, store the full sequence of events that led to that state. Current state is derived by replaying events. You get a complete audit log for free, the ability to replay events to reconstruct any historical state or build new projections, and natural temporal queries. The cost: eventual consistency for queries (projections are slightly behind), event schema evolution is hard (you can't change history), and storage grows unboundedly. Often paired with CQRS because the event log is the write model and projections are the read models.</p>
 
+        <h3>Event Sourcing in Practice</h3>
+        <p><strong>Event versioning &amp; schema evolution</strong> is the hardest operational problem with Event Sourcing. Events are immutable — you can never change history. When your <code>UserRegistered</code> event needs a new field (e.g. you later require <code>phone_number</code>, which didn't exist at registration time), you need <strong>upcasting</strong>: a function that transforms old event versions into the new format during replay.</p>
+        <pre><code>// v1 event — stored in the event log forever
+{ type: "UserRegistered", version: 1, userId: "u1", email: "a@b.com" }
+
+// v2 event — new events include phone_number
+{ type: "UserRegistered", version: 2, userId: "u2", email: "c@d.com", phone: "+14155550100" }
+
+// Upcaster: applied at read time, never modifies stored events
+function upcast(event) {
+  if (event.type === "UserRegistered" &amp;&amp; event.version === 1) {
+    return { ...event, version: 2, phone: null }; // fill missing field with default
+  }
+  return event;
+}</code></pre>
+        <p>The upcaster runs on every replay, converting old shapes to the current schema. This keeps your aggregate code clean — it only ever sees the latest version. The cost: every schema change requires a new upcaster, and upcasters accumulate over the system's lifetime.</p>
+        <p><strong>Snapshots</strong>: replaying 10 million events on startup is slow. The standard solution is to periodically snapshot the aggregate's current state and only replay events that occurred after the snapshot. A typical threshold is every 100–500 events. On load: fetch the latest snapshot, then replay only the delta since that snapshot point. Snapshots are stored alongside the event log (usually in the same database) and are safe to regenerate at any time by replaying from the beginning.</p>
+        <p><strong>Projection rebuilding</strong>: when you add a new read model, you must replay the entire event history to build it from scratch. This is a feature — you can retroactively answer questions your system wasn't originally designed for. It is also an operational burden: a system with five years of events may take hours to rebuild a new projection. Standard practice is to run projection rebuilds offline against a read replica, then swap the new projection into service atomically when complete.</p>
+        <p><strong>When NOT to use Event Sourcing</strong>:</p>
+        <ul>
+          <li><strong>Complex domain with simple query patterns.</strong> If your reads are simple CRUD lookups and your domain has little temporal complexity, the overhead of event replay and projection management has no payoff.</li>
+          <li><strong>Small team without ES experience.</strong> Event Sourcing has a steep operational learning curve. Schema evolution, snapshot management, and projection rebuilding are non-trivial. A team new to the pattern will spend months on infrastructure instead of product.</li>
+          <li><strong>Storage cost is a constraint.</strong> Events are append-only and grow forever. Without aggressive snapshotting and event archival, storage costs compound over years. Traditional mutable-state databases discard history by design.</li>
+        </ul>
+
         <h3>Saga Pattern</h3>
         <p>Distributed transactions across microservices can't use a single ACID transaction — each service has its own database. The saga pattern replaces a distributed transaction with a sequence of local transactions, each of which publishes an event that triggers the next step. If a step fails, compensating transactions are executed to undo prior steps.</p>
         <p>Two implementations: <strong>choreography</strong> (each service reacts to events and emits the next event — no central coordinator, simple but hard to track) and <strong>orchestration</strong> (a central saga orchestrator sends commands to each service and handles failures — easier to reason about, single point of control). Classic example: book hotel → charge credit card → reserve flight. If charge fails, cancel hotel booking.</p>
+        <p>A concrete e-commerce order saga illustrates the compensating transaction flow:</p>
+        <pre><code>// Orchestrated saga steps
+1. ReserveInventory(orderId, items)   → success: inventory reserved
+2. ChargePayment(orderId, amount)     → FAILURE: card declined
+
+// Payment failed — execute compensating transactions in reverse
+C1. ReleaseInventoryReservation(orderId)  // undo step 1</code></pre>
+        <p>Each step emits an event on success or failure. On failure at step N, the orchestrator triggers compensating transactions for steps N-1 down to step 1, each undoing the side effect of the corresponding forward transaction. Compensating transactions must themselves be idempotent — the orchestrator may retry them if a compensating transaction times out or fails transiently. This means <strong>every step in a saga, both forward and compensating, must be designed for at-least-once execution</strong>: use idempotency keys on external calls, check-then-act patterns on database writes, and deduplicate by correlation ID at each service boundary.</p>
 
         <h3>API Gateway &amp; BFF</h3>
         <p>An API gateway is a single entry point for all client traffic. It handles: authentication (validate JWTs before any request reaches your services), rate limiting, request routing, protocol translation (REST → gRPC), SSL termination, and sometimes light request/response transformation. Kong, AWS API Gateway, Nginx, and Envoy are common choices.</p>

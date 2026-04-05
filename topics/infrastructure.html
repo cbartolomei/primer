@@ -16,7 +16,7 @@
     <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
     <div class="header-progress">
       <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
-      <div class="progress-label" id="topic-progress-label">0 / 3 sections understood</div>
+      <div class="progress-label" id="topic-progress-label">0 / 2 sections understood</div>
     </div>
   </div>
 </header>
@@ -24,7 +24,7 @@
 <main class="container">
   <div class="page-hero">
     <h1>📦 Infrastructure</h1>
-    <p class="subtitle">Containers, orchestration, and the deployment pipeline — the machinery that takes code from your laptop to production and keeps it running.</p>
+    <p class="subtitle">Containers and orchestration — Docker, Kubernetes, and the runtime infrastructure that keeps your services running at scale.</p>
   </div>
 
   <div class="topic-content">
@@ -113,47 +113,6 @@ CMD ["node", "dist/server.js"]</code></pre>
       </div>
     </div>
 
-    <!-- SECTION 3: CI/CD -->
-    <div class="section" data-id="cicd">
-      <div class="section-header">
-        <div class="section-header-left"><span class="section-icon">🚀</span><h2>CI/CD &amp; Deployment Strategies</h2></div>
-        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
-      </div>
-      <div class="section-body">
-        <p>CI/CD (Continuous Integration / Continuous Delivery) is the practice of automating the path from code commit to production. Every merge triggers a pipeline that builds, tests, and deploys. The goal is to make deploying so fast and safe that it's done dozens of times per day rather than once a sprint.</p>
-
-        <h3>Continuous Integration</h3>
-        <p><strong>CI</strong>: automatically run tests on every push. The pipeline: lint → unit tests → integration tests → build Docker image → push to registry. Fast feedback — developers know within minutes if they broke something. The key principle: the CI pipeline must be the authoritative source of truth for "does this code work?" If tests only run locally, they will drift from reality.</p>
-        <p>Keep CI fast. Tests that take 20 minutes will be skipped or not waited for. Strategies: parallelize test suites, run cheap tests first (lint, unit) and fail fast before expensive tests (integration, E2E), cache dependencies (Docker layer cache, npm/pip cache), and keep the test database seeded with minimal data.</p>
-
-        <h3>Continuous Delivery vs Continuous Deployment</h3>
-        <p><strong>Continuous Delivery</strong>: every build is potentially releasable, but a human triggers the production deployment. The pipeline gets the artifact to a staging environment automatically; a button or approval gates production. <strong>Continuous Deployment</strong>: passing CI automatically deploys to production with no human gate. Requires high test coverage, feature flags, and rollback capabilities. Most teams land somewhere in between: auto-deploy to staging, manual approval for production.</p>
-
-        <h3>Deployment Strategies</h3>
-        <p>How you release a new version while minimizing downtime and user impact:</p>
-        <ul>
-          <li><strong>Rolling update</strong>: replace old instances with new ones incrementally. The default in Kubernetes Deployments. Traffic is automatically shifted away from terminating pods. Risk: both old and new code run simultaneously during the rollout — ensure backward compatibility (database schema must work with both versions).</li>
-          <li><strong>Blue/Green</strong>: maintain two identical production environments (blue = current, green = new). Deploy to green, run smoke tests, flip the load balancer to green. If issues, flip back to blue instantly. Cost: you need 2× production capacity during the switchover. Rollback is instantaneous — just re-point the LB.</li>
-          <li><strong>Canary</strong>: route a small percentage of traffic (1–5%) to the new version, while the majority stays on the old version. Monitor error rates and latency on the canary. If healthy, gradually increase traffic. If problems, route 0% to canary and investigate. Lower blast radius than rolling updates — only a small fraction of users see the bad version. Requires your load balancer to support traffic splitting (AWS ALB weighted target groups, Istio, Argo Rollouts).</li>
-          <li><strong>Feature flags</strong>: deploy code to production but keep it disabled by default. Enable for specific users (your team), percentage rollouts, or specific customer segments. Decouple deployment from feature release. Allows dark launches (deploy + measure performance impact without enabling the feature for users). LaunchDarkly, Unleash, and Flagsmith are common tools.</li>
-        </ul>
-
-        <h3>Infrastructure as Code (IaC)</h3>
-        <p>Define your infrastructure (cloud resources, network topology, IAM policies) in code, version it in git, and apply it via a pipeline. Benefits: reproducible environments, peer review for infrastructure changes, disaster recovery from a known state, eliminates snowflake servers.</p>
-        <p><strong>Terraform</strong>: declarative HCL configuration, provider plugins for every cloud. Plan shows what will change before applying. State file tracks what exists. Good for cloud resources (VPCs, RDS instances, EKS clusters). <strong>Kubernetes manifests / Helm</strong>: YAML defines Kubernetes resources. Helm adds templating and packaging (a chart is a collection of templates). <strong>Pulumi</strong>: IaC in actual programming languages (TypeScript, Python, Go) — useful when you need loops, conditionals, or data transformations that are painful in HCL.</p>
-
-        <h3>Twelve-Factor App Principles</h3>
-        <p>A methodology for building services that are portable, scalable, and cloud-native. The most operationally relevant factors:</p>
-        <ul>
-          <li><strong>Config in environment</strong>: don't hardcode config or commit it. Inject via environment variables at deploy time.</li>
-          <li><strong>Stateless processes</strong>: no local state — sessions in Redis, uploads to S3, any process can handle any request.</li>
-          <li><strong>Port binding</strong>: the app exports services via a port it binds to — it's not embedded in a server. Standard in containerized apps.</li>
-          <li><strong>Disposability</strong>: fast startup (seconds), graceful shutdown (finish in-flight requests, drain connections). Handle SIGTERM: stop accepting new connections, finish processing current requests, then exit.</li>
-          <li><strong>Logs as event streams</strong>: write to stdout/stderr. Let the platform (Docker, Kubernetes) collect and route them. Don't manage log files in your application.</li>
-        </ul>
-      </div>
-    </div>
-
     <!-- GO DEEPER -->
     <div class="section" style="border-style:dashed;">
       <div class="section-header">
@@ -176,7 +135,7 @@ CMD ["node", "dist/server.js"]</code></pre>
   <div class="module-nav">
     <a href="security.html">← Security</a>
     <a href="../backend.html" class="center">All modules</a>
-    <a href="message-queues.html">Message Queues →</a>
+    <a href="cicd.html">CI/CD →</a>
   </div>
 </footer>
 
