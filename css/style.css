@@ -266,7 +266,7 @@ a.site-logo:hover { opacity: 0.7; text-decoration: none; }
   gap: 0.625rem;
 }
 .section-header h2 { margin: 0; font-size: 0.9375rem; }
-.section-icon { font-size: 1rem; flex-shrink: 0; }
+.section-icon { font-size: 0.9375rem; flex-shrink: 0; line-height: 1.4; align-self: center; }
 
 /* Mark understood pill */
 .section-understood {
