@@ -1,4 +1,4 @@
-const CACHE = 'primer-v14';
+const CACHE = 'primer-v15';
 
 const PRECACHE = [
   './',

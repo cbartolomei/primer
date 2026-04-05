@@ -499,7 +499,12 @@ function resetProgress() {
 
   // ── Pull ────────────────────────────────────────────────────
   async function pull() {
-    const gistId = localStorage.getItem(GIST_ID_KEY);
+    let gistId = localStorage.getItem(GIST_ID_KEY);
+    // No local gist ID — search GitHub for an existing one
+    if (!gistId) {
+      gistId = await findExistingGist();
+      if (gistId) localStorage.setItem(GIST_ID_KEY, gistId);
+    }
     if (!gistId) return;
     try {
       const gist = await ghFetch('/gists/' + gistId);
