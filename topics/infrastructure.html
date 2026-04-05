@@ -10,16 +10,13 @@
   <link rel="stylesheet" href="../css/style.css">
 </head>
 <body>
-
 <header class="site-header">
   <div class="inner">
-    <a href="../index.html" class="header-back">← Back</a>
-    <span class="site-logo">pri<span>m</span>er</span>
+    <a href="../backend.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
     <div class="header-progress">
-      <div class="progress-bar-wrap">
-        <div class="progress-bar" id="topic-progress-bar" style="width:0%"></div>
-      </div>
-      <div class="progress-label" id="topic-progress-label">0 / 8 concepts covered</div>
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 3 sections understood</div>
     </div>
   </div>
 </header>
@@ -27,248 +24,147 @@
 <main class="container">
   <div class="page-hero">
     <h1>📦 Infrastructure</h1>
-    <p class="subtitle">Docker, Kubernetes, CI/CD pipelines, deployment strategies, and observability.</p>
+    <p class="subtitle">Containers, orchestration, and the deployment pipeline — the machinery that takes code from your laptop to production and keeps it running.</p>
   </div>
 
   <div class="topic-content">
 
-    <!-- CONTAINERS -->
-    <div class="section">
+    <!-- SECTION 1: DOCKER & CONTAINERS -->
+    <div class="section" data-id="containers">
       <div class="section-header">
-        <span class="section-icon">🐳</span>
-        <h2>Containers</h2>
+        <div class="section-header-left"><span class="section-icon">🐳</span><h2>Docker &amp; Containers</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
-        <ul class="checklist">
+        <p>A container is a process (or group of processes) running in isolation — its own filesystem, network namespace, and process tree — but sharing the host kernel. Unlike a VM, there's no guest OS. Containers start in milliseconds, are typically a few hundred MB, and the overhead is minimal. Docker popularized the workflow of building, shipping, and running containers via a standard image format.</p>
 
-          <li class="check-item" data-id="docker-basics">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Docker Fundamentals</div>
-              <div class="check-item-desc">
-                <strong>Image:</strong> read-only, layered filesystem (Union FS). Each <code>RUN</code>/<code>COPY</code> instruction adds a layer.
-                <strong>Container:</strong> running instance of an image + a writable container layer (ephemeral by default).
-                Key Dockerfile instructions: <code>FROM</code>, <code>RUN</code> (shell command, creates a layer), <code>COPY</code> (files into image), <code>EXPOSE</code> (documentation only), <code>ENV</code>, <code>ARG</code>, <code>CMD</code> (default command, overridable), <code>ENTRYPOINT</code> (fixed command, CMD becomes args).
-                <strong>Multi-stage builds:</strong> <code>FROM node:20 AS builder</code> → build → <code>FROM node:20-alpine</code> → <code>COPY --from=builder /app/dist .</code>. Final image only has runtime artifacts, not build tools.
-              </div>
-            </div>
-          </li>
+        <h3>How Docker Works</h3>
+        <p>Docker uses Linux kernel features: <strong>namespaces</strong> (isolate what the process can see — filesystem, network, PIDs) and <strong>cgroups</strong> (limit resource consumption — CPU, memory, I/O). A container is not a VM — it's an isolated process using the host kernel. On macOS and Windows, Docker Desktop runs a lightweight Linux VM; on Linux, containers run directly.</p>
+        <p>A <strong>Docker image</strong> is a read-only, layered filesystem snapshot. Each instruction in a Dockerfile creates a layer. Layers are cached and shared across images — if your base image is the same, it's not duplicated on the host. A <strong>container</strong> is a running image with a writable layer on top. That writable layer is ephemeral — it disappears when the container stops. Persistent data requires volumes.</p>
 
-          <li class="check-item" data-id="docker-compose">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Docker Compose</div>
-              <div class="check-item-desc">
-                Defines and runs multi-container applications. Core concepts: <code>services</code>, <code>networks</code>, <code>volumes</code>.
-                <code>depends_on</code> controls start order but <em>not readiness</em> — use health checks with <code>condition: service_healthy</code> or a wait script for true readiness.
-                Shared volumes for local dev (mount source code into container for hot reload). Named volumes for persistent data (DB files).
-                Good for: local development, integration test environments. Not recommended for production orchestration (use Kubernetes).
-              </div>
-            </div>
-          </li>
+        <h3>Writing Good Dockerfiles</h3>
+        <pre><code># Multi-stage build — keep final image small
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production  # separate layer — cache unless package.json changes
+COPY . .
+RUN npm run build
 
-          <li class="check-item" data-id="image-best-practices">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Image Best Practices</div>
-              <div class="check-item-desc">
-                <strong>Use specific tags</strong> in production (<code>node:20.11.1-alpine</code>, not <code>node:latest</code>).
-                <strong>Minimize image size:</strong> use alpine/distroless base images. Remove build tools in multi-stage builds. Clean up package caches in the same <code>RUN</code> layer that installed them.
-                <strong>Layer caching:</strong> order Dockerfile instructions from least to most frequently changing. <code>COPY package.json .</code> → <code>RUN npm install</code> → <code>COPY . .</code> — dependency install layer cached unless package.json changes.
-                <strong>Non-root user:</strong> <code>USER node</code> — don't run containers as root.
-                <strong>Vulnerability scanning:</strong> Trivy, Snyk, Docker Scout — integrate into CI.
-                <strong>.dockerignore:</strong> exclude <code>node_modules</code>, <code>.git</code>, secrets from build context.
-              </div>
-            </div>
-          </li>
+FROM node:20-alpine AS runtime
+WORKDIR /app
+# Copy only production artifacts, not source or dev tools
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+EXPOSE 3000
+# Run as non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+CMD ["node", "dist/server.js"]</code></pre>
+        <p>Key practices: use <strong>multi-stage builds</strong> to keep production images small (don't ship compilers, source code, dev dependencies), order layers from least-to-most-frequently-changing (COPY package.json before COPY . . so npm install is cached unless dependencies change), run as a non-root user, use specific image tags (not <code>node:latest</code> — pin to a digest for reproducibility), and use <code>.dockerignore</code> to exclude <code>node_modules</code>, <code>.git</code>, and local build artifacts.</p>
 
+        <h3>Volumes &amp; Networking</h3>
+        <p>Volumes persist data beyond the container lifecycle and can be shared between containers. Three types: <strong>named volumes</strong> (<code>docker volume create dbdata</code>, managed by Docker), <strong>bind mounts</strong> (mount a host directory into the container — useful in development, not in production), <strong>tmpfs mounts</strong> (in-memory, lost on container stop).</p>
+        <p>Docker networking: containers on the same network can communicate by container name (Docker's embedded DNS resolves them). Bridge network (default) isolates containers from the host. Host network (Linux only) gives the container direct access to the host's network interfaces — maximum performance, minimum isolation. For production, always put containers on an isolated user-defined network and expose only necessary ports to the host.</p>
+
+        <h3>Docker Compose</h3>
+        <p>Compose defines a multi-container application in a single YAML file. Essential for local development: <code>docker compose up</code> starts your API, database, Redis, and any other services defined, each with appropriate environment variables, volumes, and networking. Key patterns: use <code>depends_on</code> with <code>condition: service_healthy</code> (not just service_started) to wait for dependencies to be ready, use environment files (<code>env_file: .env.local</code>) for local secrets, and use named volumes for databases so data persists across <code>docker compose down</code>.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 2: KUBERNETES -->
+    <div class="section" data-id="kubernetes">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">☸️</span><h2>Kubernetes</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Kubernetes (K8s) is a container orchestration platform that automates deployment, scaling, and management of containerized applications across a cluster. The core value: describe the desired state, Kubernetes continuously works to make reality match the description and recover from failures.</p>
+
+        <h3>Core Concepts</h3>
+        <p>Everything in Kubernetes is a resource with a spec (desired state) and status (actual state). The controller loop runs constantly: observe state → compare to desired → act to reconcile.</p>
+        <ul>
+          <li><strong>Pod</strong>: the smallest deployable unit — one or more containers that share a network namespace and storage. Containers in a pod communicate via <code>localhost</code>. Pods are ephemeral — don't manage pods directly.</li>
+          <li><strong>Deployment</strong>: manages a ReplicaSet of identical pods. Specify <code>replicas: 3</code> and Kubernetes keeps 3 pods running. Rolling updates by default: brings up new pods before terminating old ones. Rollback with <code>kubectl rollout undo</code>.</li>
+          <li><strong>Service</strong>: a stable network endpoint (IP + DNS name) that load-balances across a set of pods. Pods come and go; the Service endpoint stays constant. Types: ClusterIP (internal only), NodePort (exposes on each node's IP), LoadBalancer (provisions a cloud LB), ExternalName (DNS alias).</li>
+          <li><strong>Ingress</strong>: Layer 7 (HTTP) routing rules. Route <code>/api/*</code> to the API service, <code>/</code> to the frontend service, by hostname to different services. Requires an Ingress Controller (nginx-ingress, Traefik, AWS ALB Ingress Controller).</li>
+          <li><strong>ConfigMap</strong>: non-sensitive configuration as key-value pairs, mounted as env vars or files. <strong>Secret</strong>: same but base64-encoded and with stricter RBAC. Neither actually encrypts at rest by default — use Sealed Secrets or an external secrets manager (AWS Secrets Manager via External Secrets Operator).</li>
+          <li><strong>PersistentVolumeClaim (PVC)</strong>: a request for persistent storage. The cluster provisions a PersistentVolume (actual disk) to satisfy the claim. Abstracts the underlying storage type (EBS, GCE PD, NFS, local SSD).</li>
+        </ul>
+
+        <h3>Resource Requests &amp; Limits</h3>
+        <p><strong>Requests</strong>: the amount of CPU/memory the scheduler guarantees the pod. The scheduler only places the pod on a node with enough unallocated resources. <strong>Limits</strong>: the maximum the pod can use. Exceed the CPU limit → throttled. Exceed the memory limit → OOMKilled. <code>requests</code> should reflect steady-state usage; <code>limits</code> should be 1.5–2× requests to handle spikes without OOM. Setting requests = limits is predictable but wastes resources. Never leave limits unset (noisy neighbor problem).</p>
+        <pre><code>resources:
+  requests:
+    cpu: "100m"     # 0.1 CPU cores
+    memory: "128Mi"
+  limits:
+    cpu: "500m"     # 0.5 CPU cores
+    memory: "512Mi"</code></pre>
+
+        <h3>Health Checks</h3>
+        <p><strong>Liveness probe</strong>: is the container still alive? If it fails, Kubernetes restarts the container. Use for: detecting deadlocks, stuck processes. Don't fail the liveness probe for upstream dependency failures — Kubernetes will restart your pod in a crash loop but the dependency is still down. <strong>Readiness probe</strong>: is the container ready to receive traffic? If it fails, the pod is removed from Service endpoints. Use for: warmup time, temporary unavailability. Fail readiness when your pod can't handle requests. <strong>Startup probe</strong>: for slow-starting containers, give them time before the liveness probe takes over.</p>
+
+        <h3>Horizontal Pod Autoscaler (HPA)</h3>
+        <p>HPA scales the number of pod replicas based on metrics. CPU utilization is the built-in metric: if average CPU across all pods exceeds 70%, add more replicas. Custom metrics (request rate, queue depth, latency) require Prometheus + KEDA or a custom metrics adapter. HPA works within bounds you set: <code>minReplicas: 2</code>, <code>maxReplicas: 20</code>. The Cluster Autoscaler adds/removes nodes when pods can't be scheduled.</p>
+
+        <h3>Namespace &amp; RBAC</h3>
+        <p>Namespaces provide soft isolation within a cluster — logical grouping, resource quotas, and separate RBAC policies. Common pattern: <code>production</code>, <code>staging</code>, <code>development</code> namespaces in the same cluster. Kubernetes RBAC controls who can do what to which resources: <code>Role</code> or <code>ClusterRole</code> defines permissions; <code>RoleBinding</code> grants them to a ServiceAccount, user, or group. Follow least privilege: give each service account only the API verbs it actually needs.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 3: CI/CD -->
+    <div class="section" data-id="cicd">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🚀</span><h2>CI/CD &amp; Deployment Strategies</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>CI/CD (Continuous Integration / Continuous Delivery) is the practice of automating the path from code commit to production. Every merge triggers a pipeline that builds, tests, and deploys. The goal is to make deploying so fast and safe that it's done dozens of times per day rather than once a sprint.</p>
+
+        <h3>Continuous Integration</h3>
+        <p><strong>CI</strong>: automatically run tests on every push. The pipeline: lint → unit tests → integration tests → build Docker image → push to registry. Fast feedback — developers know within minutes if they broke something. The key principle: the CI pipeline must be the authoritative source of truth for "does this code work?" If tests only run locally, they will drift from reality.</p>
+        <p>Keep CI fast. Tests that take 20 minutes will be skipped or not waited for. Strategies: parallelize test suites, run cheap tests first (lint, unit) and fail fast before expensive tests (integration, E2E), cache dependencies (Docker layer cache, npm/pip cache), and keep the test database seeded with minimal data.</p>
+
+        <h3>Continuous Delivery vs Continuous Deployment</h3>
+        <p><strong>Continuous Delivery</strong>: every build is potentially releasable, but a human triggers the production deployment. The pipeline gets the artifact to a staging environment automatically; a button or approval gates production. <strong>Continuous Deployment</strong>: passing CI automatically deploys to production with no human gate. Requires high test coverage, feature flags, and rollback capabilities. Most teams land somewhere in between: auto-deploy to staging, manual approval for production.</p>
+
+        <h3>Deployment Strategies</h3>
+        <p>How you release a new version while minimizing downtime and user impact:</p>
+        <ul>
+          <li><strong>Rolling update</strong>: replace old instances with new ones incrementally. The default in Kubernetes Deployments. Traffic is automatically shifted away from terminating pods. Risk: both old and new code run simultaneously during the rollout — ensure backward compatibility (database schema must work with both versions).</li>
+          <li><strong>Blue/Green</strong>: maintain two identical production environments (blue = current, green = new). Deploy to green, run smoke tests, flip the load balancer to green. If issues, flip back to blue instantly. Cost: you need 2× production capacity during the switchover. Rollback is instantaneous — just re-point the LB.</li>
+          <li><strong>Canary</strong>: route a small percentage of traffic (1–5%) to the new version, while the majority stays on the old version. Monitor error rates and latency on the canary. If healthy, gradually increase traffic. If problems, route 0% to canary and investigate. Lower blast radius than rolling updates — only a small fraction of users see the bad version. Requires your load balancer to support traffic splitting (AWS ALB weighted target groups, Istio, Argo Rollouts).</li>
+          <li><strong>Feature flags</strong>: deploy code to production but keep it disabled by default. Enable for specific users (your team), percentage rollouts, or specific customer segments. Decouple deployment from feature release. Allows dark launches (deploy + measure performance impact without enabling the feature for users). LaunchDarkly, Unleash, and Flagsmith are common tools.</li>
+        </ul>
+
+        <h3>Infrastructure as Code (IaC)</h3>
+        <p>Define your infrastructure (cloud resources, network topology, IAM policies) in code, version it in git, and apply it via a pipeline. Benefits: reproducible environments, peer review for infrastructure changes, disaster recovery from a known state, eliminates snowflake servers.</p>
+        <p><strong>Terraform</strong>: declarative HCL configuration, provider plugins for every cloud. Plan shows what will change before applying. State file tracks what exists. Good for cloud resources (VPCs, RDS instances, EKS clusters). <strong>Kubernetes manifests / Helm</strong>: YAML defines Kubernetes resources. Helm adds templating and packaging (a chart is a collection of templates). <strong>Pulumi</strong>: IaC in actual programming languages (TypeScript, Python, Go) — useful when you need loops, conditionals, or data transformations that are painful in HCL.</p>
+
+        <h3>Twelve-Factor App Principles</h3>
+        <p>A methodology for building services that are portable, scalable, and cloud-native. The most operationally relevant factors:</p>
+        <ul>
+          <li><strong>Config in environment</strong>: don't hardcode config or commit it. Inject via environment variables at deploy time.</li>
+          <li><strong>Stateless processes</strong>: no local state — sessions in Redis, uploads to S3, any process can handle any request.</li>
+          <li><strong>Port binding</strong>: the app exports services via a port it binds to — it's not embedded in a server. Standard in containerized apps.</li>
+          <li><strong>Disposability</strong>: fast startup (seconds), graceful shutdown (finish in-flight requests, drain connections). Handle SIGTERM: stop accepting new connections, finish processing current requests, then exit.</li>
+          <li><strong>Logs as event streams</strong>: write to stdout/stderr. Let the platform (Docker, Kubernetes) collect and route them. Don't manage log files in your application.</li>
         </ul>
       </div>
     </div>
 
-    <!-- KUBERNETES -->
-    <div class="section">
+    <!-- GO DEEPER -->
+    <div class="section" style="border-style:dashed;">
       <div class="section-header">
-        <span class="section-icon">☸️</span>
-        <h2>Kubernetes</h2>
-      </div>
-      <div class="section-body">
-        <ul class="checklist">
-
-          <li class="check-item" data-id="k8s-core">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Core Resources</div>
-              <div class="check-item-desc">
-                <strong>Pod:</strong> smallest deployable unit. 1+ containers sharing network namespace (same IP, can talk on localhost) and volumes. Ephemeral — don't run pods directly.
-                <strong>Deployment:</strong> manages a ReplicaSet for desired count + rolling updates. Use this for stateless apps.
-                <strong>Service:</strong> stable DNS name + virtual IP routing to pods (via label selector). Types: ClusterIP (internal), NodePort (external via node IP), LoadBalancer (cloud LB).
-                <strong>ConfigMap:</strong> non-secret config (env vars, config files).
-                <strong>Secret:</strong> base64-encoded (not encrypted at rest by default — enable etcd encryption or use external secrets operator). Use sealed-secrets or external-secrets for GitOps.
-                <strong>Namespace:</strong> virtual cluster for resource isolation and quotas.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="k8s-workloads">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Workload Types &amp; Autoscaling</div>
-              <div class="check-item-desc">
-                <strong>Deployment:</strong> stateless apps, rolling updates.
-                <strong>StatefulSet:</strong> stable pod identity (pod-0, pod-1), stable storage. For databases, Kafka, Zookeeper.
-                <strong>DaemonSet:</strong> one pod per node — for log collectors (Fluentd), node monitoring (node-exporter), network plugins.
-                <strong>Job:</strong> runs to completion (batch processing, DB migrations). <strong>CronJob:</strong> scheduled jobs.
-                <strong>HPA (Horizontal Pod Autoscaler):</strong> scales Deployment replicas based on CPU/memory or custom metrics (Prometheus adapter). <strong>VPA (Vertical):</strong> adjusts resource requests/limits. <strong>KEDA:</strong> event-driven autoscaling (scale-to-zero based on queue depth, etc.).
-                Always set resource <code>requests</code> (scheduling) and <code>limits</code> (enforcement). Requests &lt; Limits = Burstable QoS.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="k8s-networking">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Networking &amp; Ingress</div>
-              <div class="check-item-desc">
-                <strong>Ingress:</strong> L7 HTTP(S) routing — route by hostname (<code>api.example.com</code>) or path (<code>/api/</code>) to Services. Requires an Ingress Controller (nginx-ingress, Traefik, AWS ALB Ingress Controller).
-                <strong>kube-dns / CoreDNS:</strong> service discovery via DNS. <code>my-service.my-namespace.svc.cluster.local</code> resolves to the Service ClusterIP.
-                <strong>Network Policies:</strong> firewall rules for pods (default: all pods can talk to all pods). Requires a CNI plugin that supports it (Calico, Cilium).
-                <strong>Pod-to-pod communication:</strong> all pods can reach all other pods by IP across nodes (flat network). Container-to-container in same pod: localhost.
-              </div>
-            </div>
-          </li>
-
-        </ul>
-      </div>
-    </div>
-
-    <!-- CI/CD & OBSERVABILITY -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-icon">🔄</span>
-        <h2>CI/CD &amp; Observability</h2>
-      </div>
-      <div class="section-body">
-        <ul class="checklist">
-
-          <li class="check-item" data-id="cicd">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">CI/CD &amp; Deployment Strategies</div>
-              <div class="check-item-desc">
-                Typical pipeline: Code push → Lint/Test → Build image → Security scan → Push to registry → Deploy to staging → Smoke tests → Deploy to prod.
-                <strong>Blue/Green:</strong> two identical environments. Switch traffic from Blue (current) to Green (new) atomically. Instant rollback by switching back. Requires double infrastructure.
-                <strong>Canary:</strong> route X% of traffic to new version. Gradually increase percentage. Catch bugs with limited blast radius. Requires traffic splitting at LB or service mesh layer.
-                <strong>Feature flags</strong> (LaunchDarkly, Unleash): decouple deployment from feature release. Deploy code with flags off; enable for % of users. Rollback = turn flag off.
-                <strong>GitOps</strong> (Argo CD, Flux): Git is the single source of truth for infrastructure state. A controller continuously reconciles cluster state with the Git repo.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="observability">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Observability</div>
-              <div class="check-item-desc">
-                Three pillars: <strong>Logs</strong> (what happened), <strong>Metrics</strong> (how much/fast — quantitative), <strong>Traces</strong> (request journey across services).
-                <strong>Structured logging:</strong> JSON logs with consistent fields (<code>level</code>, <code>timestamp</code>, <code>trace_id</code>, <code>service</code>). Enables filtering and querying in Datadog/Splunk/CloudWatch.
-                <strong>Correlation IDs:</strong> generate a <code>X-Request-ID</code> at the edge, propagate through all service calls — link logs across services for a single user request.
-                <strong>Metrics:</strong> Prometheus (pull-based, time-series) + Grafana (dashboards). The four golden signals: <em>Latency, Traffic, Errors, Saturation</em>.
-                <strong>Distributed tracing:</strong> Jaeger, Zipkin, Datadog APM. <strong>OpenTelemetry</strong>: vendor-neutral instrumentation standard for logs, metrics, and traces.
-              </div>
-            </div>
-          </li>
-
-        </ul>
-      </div>
-    </div>
-
-    <!-- Q&A -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-icon">🧠</span>
-        <h2>Quick Review</h2>
-      </div>
-      <div class="section-body">
-
-        <details class="qa">
-          <summary>Why is a Kubernetes Secret not actually secret?</summary>
-          <div class="qa-body">
-            <p>Kubernetes Secrets are base64-encoded, which is encoding, not encryption. Anyone with access to the etcd cluster (or the right RBAC permissions) can decode them trivially: <code>echo "dXNlcjpwYXNz" | base64 -d</code>.</p>
-            <p>To actually protect secrets: (1) <strong>Enable etcd encryption at rest</strong> — Kubernetes supports this natively with an encryption provider config. (2) Use <strong>external secrets</strong> — store secrets in AWS Secrets Manager/Vault and sync them into the cluster with the External Secrets Operator or sealed-secrets. This way the source of truth is the external store (with proper ACLs), not plaintext in your Git repo or etcd.</p>
-          </div>
-        </details>
-
-        <details class="qa">
-          <summary>What's the difference between resource requests and limits in Kubernetes?</summary>
-          <div class="qa-body">
-            <p><strong>Requests:</strong> the amount of resources the scheduler guarantees the container will have. Used for scheduling decisions — a pod is placed on a node with enough unreserved capacity.</p>
-            <p><strong>Limits:</strong> the maximum a container can use. CPU: container is throttled if it exceeds the limit (it doesn't get killed). Memory: container is OOM-killed if it exceeds the limit.</p>
-            <p>If requests = limits → <strong>Guaranteed QoS</strong> (highest priority, never evicted under memory pressure unless it exceeds limit). If requests &lt; limits → <strong>Burstable QoS</strong>. No requests/limits → <strong>BestEffort</strong> (evicted first).</p>
-          </div>
-        </details>
-
-        <details class="qa">
-          <summary>What are the four golden signals and what do they measure?</summary>
-          <div class="qa-body">
-            <p>From the Google SRE Book:</p>
-            <ul>
-              <li><strong>Latency:</strong> time to serve a request. Track both successful and failed request latency. Report as percentiles (p50, p95, p99), never just averages.</li>
-              <li><strong>Traffic:</strong> demand on the system — requests/sec, queries/sec, messages/sec. Baseline for capacity planning.</li>
-              <li><strong>Errors:</strong> rate of requests that fail. Explicit (5xx) + implicit (200 with wrong content). Track error budget against SLO.</li>
-              <li><strong>Saturation:</strong> how "full" a service is — CPU %, memory %, queue depth, thread pool utilization. Most services degrade before reaching 100% saturation.</li>
-            </ul>
-          </div>
-        </details>
-
-      </div>
-    </div>
-
-    <!-- RESOURCES -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-icon">📚</span>
-        <h2>Go Deeper</h2>
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
       </div>
       <div class="section-body">
         <div class="resource-list">
-
-          <div class="resource">
-            <span class="resource-type docs">docs</span>
-            <div class="resource-content">
-              <div class="resource-title">Kubernetes Documentation — Concepts</div>
-              <div class="resource-author">kubernetes.io/docs/concepts</div>
-              <div class="resource-desc">The official docs are well-written. Work through: Workloads (Pods, Deployments, StatefulSets), Services and Networking, Configuration (ConfigMap/Secret), and Storage. The "Tasks" section has practical how-tos for health probes and resource limits.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type blog">blog</span>
-            <div class="resource-content">
-              <div class="resource-title">Production Kubernetes</div>
-              <div class="resource-author">Josh Rosso, Craig Martin, et al. — O'Reilly</div>
-              <div class="resource-desc">Goes beyond basic K8s to cover the things that bite you in production: multi-tenancy, security policies, networking, storage, and platform team patterns. Much more practical than the official docs for production use cases.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type blog">blog</span>
-            <div class="resource-content">
-              <div class="resource-title">Docker — Best practices for writing Dockerfiles</div>
-              <div class="resource-author">docs.docker.com</div>
-              <div class="resource-desc">Official best practices covering layer caching, multi-stage builds, .dockerignore, and security. Short and practical — worth reading before you build your next production image.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type book">book</span>
-            <div class="resource-content">
-              <div class="resource-title">Accelerate: The Science of Lean Software and DevOps</div>
-              <div class="resource-author">Nicole Forsgren, Jez Humble, Gene Kim</div>
-              <div class="resource-desc">Research-backed findings on what actually makes software delivery high-performing. Defines DORA metrics (deployment frequency, lead time, MTTR, change failure rate) that are now industry-standard for measuring CI/CD effectiveness.</div>
-            </div>
-          </div>
-
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">Docker Documentation — Get Started</div><div class="resource-author">docs.docker.com/get-started</div><div class="resource-desc">The official tutorial covers building, running, and pushing images. Do the multi-container app section — it's the closest to real usage. The Dockerfile best practices guide is worth reading in full.</div></div></div>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">Kubernetes Documentation — Concepts</div><div class="resource-author">kubernetes.io/docs/concepts</div><div class="resource-desc">Read the Workloads, Services, and Configuration sections. Then the Tasks section for hands-on examples. The interactive tutorial (kubernetes.io/docs/tutorials) is the fastest path to a working mental model.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">The Twelve-Factor App</div><div class="resource-author">12factor.net</div><div class="resource-desc">Short, read it in 30 minutes. Each factor has a one-page explanation of the problem and the methodology. Foundational for building cloud-native services.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">GitHub Actions Documentation</div><div class="resource-author">docs.github.com/en/actions</div><div class="resource-desc">If you're using GitHub, Actions is the most accessible CI/CD starting point. The workflow syntax guide and the marketplace for reusable actions. Most teams start here before graduating to dedicated CI (CircleCI, Buildkite, Tekton).</div></div></div>
         </div>
       </div>
     </div>
@@ -279,17 +175,15 @@
 <footer class="site-footer">
   <div class="module-nav">
     <a href="security.html">← Security</a>
-    <a href="../index.html" class="center">All modules</a>
+    <a href="../backend.html" class="center">All modules</a>
     <a href="message-queues.html">Message Queues →</a>
   </div>
 </footer>
 
 <script src="../js/app.js"></script>
 <script>
-  initChecklist('infrastructure');
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('../sw.js').catch(() => {});
-  }
+  initSections('infrastructure');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
 </script>
 </body>
 </html>

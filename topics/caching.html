@@ -10,16 +10,13 @@
   <link rel="stylesheet" href="../css/style.css">
 </head>
 <body>
-
 <header class="site-header">
   <div class="inner">
-    <a href="../index.html" class="header-back">← Back</a>
-    <span class="site-logo">pri<span>m</span>er</span>
+    <a href="../backend.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
     <div class="header-progress">
-      <div class="progress-bar-wrap">
-        <div class="progress-bar" id="topic-progress-bar" style="width:0%"></div>
-      </div>
-      <div class="progress-label" id="topic-progress-label">0 / 13 concepts covered</div>
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 3 sections understood</div>
     </div>
   </div>
 </header>
@@ -27,307 +24,183 @@
 <main class="container">
   <div class="page-hero">
     <h1>⚡ Caching</h1>
-    <p class="subtitle">Cache strategies, Redis data structures, eviction policies, CDN, and HTTP cache headers.</p>
+    <p class="subtitle">Storing computed results closer to the consumer. Understand the strategies, the tradeoffs, and Redis's data model deeply enough to use it well.</p>
   </div>
 
   <div class="topic-content">
 
-    <!-- CACHE STRATEGIES -->
-    <div class="section">
+    <!-- SECTION 1: CACHE STRATEGIES -->
+    <div class="section" data-id="cache-strategies">
       <div class="section-header">
-        <span class="section-icon">🗂️</span>
-        <h2>Cache Strategies</h2>
+        <div class="section-header-left"><span class="section-icon">🗂️</span><h2>Cache Strategies</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
-        <ul class="checklist">
+        <p>Caching buys you database headroom and latency reduction by trading freshness for speed. Caching exists at multiple layers of a system — browser, CDN, load balancer, application, and database. The tricky part is cache invalidation — how and when stale data gets evicted. "There are only two hard problems in computer science: cache invalidation and naming things" is a joke that contains a lot of truth.</p>
 
-          <li class="check-item" data-id="cache-aside">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Cache-Aside (Lazy Loading)</div>
-              <div class="check-item-desc">
-                Most common pattern. App checks cache → on miss, loads from DB → writes to cache → returns data.
-                <strong>Pros:</strong> only caches what's actually read, resilient to cache failure (fall through to DB).
-                <strong>Cons:</strong> cold start penalty (first request always hits DB), stale data possible (DB updated but cache not invalidated), risk of cache stampede on TTL expiry.
-                Used everywhere as a default starting point.
-              </div>
-            </div>
-          </li>
+        <figure class="diagram">
+          <img src="../images/caching/cache-systems.jpg" alt="Cache systems at every layer — browser, CDN, load balancer, API gateway, service, distributed cache, database">
+          <figcaption>Caching exists at every layer. Each layer has different characteristics: browser caches eliminate network round-trips entirely; CDN caches serve from a geographically close edge; application-layer caches (Redis) sit in front of the database.</figcaption>
+        </figure>
 
-          <li class="check-item" data-id="read-through">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Read-Through</div>
-              <div class="check-item-desc">
-                App always reads from cache. On a miss, the <em>cache itself</em> fetches from DB and stores it (via a library or cache provider). App code doesn't know about the DB on reads.
-                <strong>Pros:</strong> simpler app code.
-                <strong>Cons:</strong> tighter coupling between cache and DB; same cold start issue. Cache failure means no reads unless the library falls back.
-                Used with: Hibernate 2nd-level cache, some CDN configurations.
-              </div>
-            </div>
-          </li>
+        <h3>Cache-Aside (Lazy Loading)</h3>
+        <p>The application is responsible for reading from and writing to the cache. On a cache miss, the app fetches from the database, writes the result to the cache, and returns it. On a cache hit, the database is never touched.</p>
+        <pre><code>async function getUser(id) {
+  const cached = await redis.get(`user:${id}`);
+  if (cached) return JSON.parse(cached);
 
-          <li class="check-item" data-id="write-through">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Write-Through</div>
-              <div class="check-item-desc">
-                Every write goes to cache <em>and</em> DB synchronously before the write is acknowledged.
-                <strong>Pros:</strong> cache is always fresh, no stale reads.
-                <strong>Cons:</strong> write latency doubles (two writes per operation), cache may hold data that's never read (write amplification), doesn't help cold start for new data.
-                Best when reads and writes to the same data are equally frequent.
-              </div>
-            </div>
-          </li>
+  const user = await db.query('SELECT * FROM users WHERE id = $1', [id]);
+  await redis.setex(`user:${id}`, 3600, JSON.stringify(user)); // TTL: 1 hour
+  return user;
+}</code></pre>
+        <p>Strengths: only caches data that's actually requested, resilient to cache failure (miss just goes to DB), cache structure is independent from database schema. Weakness: first request always misses (thundering herd if a hot key expires and 1000 requests hit simultaneously — mitigate with a mutex/lock or probabilistic early expiration). Cache can become stale if the DB is updated by another path — requires explicit invalidation on writes.</p>
 
-          <li class="check-item" data-id="write-behind">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Write-Behind (Write-Back)</div>
-              <div class="check-item-desc">
-                Write to cache immediately; DB write is async (buffered, flushed in batches).
-                <strong>Pros:</strong> extremely low write latency, DB load reduced via batching.
-                <strong>Cons:</strong> durability risk — if cache crashes before flushing, data is lost. Requires the cache to be durable (Redis AOF/RDB persistence) and a reliable flush mechanism.
-                Good for high-write workloads where some data loss is acceptable (counters, analytics, non-critical state).
-              </div>
-            </div>
-          </li>
+        <figure class="diagram">
+          <img src="../images/caching/cache-aside.png" alt="Cache-aside pattern: application checks cache, on miss fetches from DB and populates cache">
+          <figcaption>Cache-aside: the application manages cache population itself. Miss → read from DB → write to cache → return. Hit → return from cache, DB never touched.</figcaption>
+        </figure>
 
-          <li class="check-item" data-id="cache-invalidation">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Cache Invalidation</div>
-              <div class="check-item-desc">
-                "There are only two hard things in CS: cache invalidation and naming things." — Phil Karlton.
-                Strategies: <strong>TTL-based</strong> (simplest, eventual consistency), <strong>Event-based</strong> (invalidate on write — harder to get right across services), <strong>Version key</strong> (embed a version in the key: <code>user:v3:123</code> — bump version to invalidate all old keys at once; old entries expire via TTL), <strong>Purge API</strong> (CDN-level explicit purge on deploy or content change).
-                Write-on-invalidation: delete the key (don't update) — avoids race conditions where a slow writer overwrites a newer value.
-              </div>
-            </div>
-          </li>
+        <h3>Write-Through</h3>
+        <p>Every write goes to both the cache and the database atomically. The cache is always in sync with the database. No stale reads after a write from the same path. Weakness: every write is slower (two writes instead of one), and you cache data that may never be read. Write-through is a good default for data that's read frequently after being written.</p>
 
-          <li class="check-item" data-id="cache-stampede">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Cache Stampede (Thundering Herd)</div>
-              <div class="check-item-desc">
-                A popular cache key expires → thousands of requests simultaneously miss → all hit the DB at once → potential DB overload.
-                Solutions:
-                <strong>Mutex/Lock:</strong> first requester acquires a distributed lock, fetches and repopulates; others wait or return stale data.
-                <strong>Probabilistic Early Expiry (PER):</strong> occasionally refresh the cache slightly before TTL expires, based on how expensive the computation is — avoids synchronized expiry.
-                <strong>Background refresh:</strong> serve stale data while asynchronously refreshing (<code>stale-while-revalidate</code>).
-              </div>
-            </div>
-          </li>
+        <figure class="diagram">
+          <img src="../images/caching/write-through.png" alt="Write-through: every write goes to cache and database simultaneously">
+          <figcaption>Write-through: application writes to cache; cache synchronously writes to database. Cache is always consistent with the database.</figcaption>
+        </figure>
 
+        <h3>Write-Behind (Write-Back)</h3>
+        <p>Writes go to the cache immediately and are asynchronously flushed to the database in the background. Very low write latency. Dangerous: if the cache host fails before the write is flushed, data is lost. Appropriate when: you can tolerate some data loss (analytics counters, non-critical events), writes are extremely high-frequency and batching saves significant DB load. Redis AOF + RDB persistence makes this safer.</p>
+
+        <figure class="diagram">
+          <img src="../images/caching/write-behind.png" alt="Write-behind: application writes to cache, cache asynchronously flushes to database">
+          <figcaption>Write-behind: application writes to cache only; cache flushes to database asynchronously. Fastest writes, but risk of data loss if cache crashes before flush.</figcaption>
+        </figure>
+
+        <h3>Cache Invalidation Strategies</h3>
+        <p>The three main approaches:</p>
+        <ul>
+          <li><strong>TTL (time-to-live)</strong>: every cached entry expires after N seconds. Simple, self-healing, but potentially serves stale data up to N seconds. The right TTL depends on how often the underlying data changes and how much staleness is acceptable. For user profiles: 5–60 minutes is usually fine. For inventory counts: seconds. For static site content: hours or days.</li>
+          <li><strong>Event-driven invalidation</strong>: when the underlying data changes, explicitly delete or update the cache entry. Ensures freshness but requires the writer to know about all cache keys that might be affected. Complex when one data change affects many cache keys.</li>
+          <li><strong>Cache versioning</strong>: instead of invalidating, change the cache key when data changes. Store a version token in the cache key: <code>user:v3:123</code>. The old key is never accessed again and expires naturally. Eliminates stale reads entirely but requires tracking current versions.</li>
         </ul>
-      </div>
-    </div>
 
-    <!-- REDIS DATA STRUCTURES -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-icon">🔴</span>
-        <h2>Redis Data Structures</h2>
-      </div>
-      <div class="section-body">
-        <ul class="checklist">
-
-          <li class="check-item" data-id="redis-strings">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Strings</div>
-              <div class="check-item-desc">
-                Most versatile type — holds text, integers, binary blobs (up to 512 MB).
-                <code>GET</code> / <code>SET</code> / <code>DEL</code>. <code>SET key val EX 60 NX</code> (set if not exists, expire in 60s — atomic distributed lock primitive).
-                <code>INCR</code> / <code>DECR</code> / <code>INCRBY</code> are atomic — great for counters (rate limiters, hit counters).
-                <code>MGET</code> / <code>MSET</code> for batch operations (fewer roundtrips).
-                <strong>Distributed lock</strong> with Redlock: acquire on majority of N Redis nodes, release with Lua script to ensure atomicity.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="redis-hashes">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Hashes</div>
-              <div class="check-item-desc">
-                Map of field → value. Ideal for representing objects without serializing the whole thing.
-                <code>HSET user:1 name Alice age 30</code> / <code>HGET user:1 name</code> / <code>HMGET</code> / <code>HGETALL</code> / <code>HDEL</code> / <code>HKEYS</code>.
-                <code>HINCRBY user:1 login_count 1</code> — atomic field-level increment without fetching/deserializing the whole object.
-                Memory efficient for small hashes (Redis uses a compact ziplist encoding when fields ≤ 128 and values are small).
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="redis-lists">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Lists</div>
-              <div class="check-item-desc">
-                Doubly-linked list. O(1) push/pop at both ends. O(n) access by index.
-                <code>RPUSH</code> (append right) / <code>LPUSH</code> (prepend) / <code>LPOP</code> / <code>RPOP</code> / <code>LRANGE key 0 -1</code> (all elements).
-                <strong>Queue:</strong> <code>RPUSH</code> + <code>BLPOP</code> (blocking pop — worker waits for work, 0 timeout = wait forever).
-                <strong>Stack:</strong> <code>LPUSH</code> + <code>LPOP</code>.
-                <strong>Activity feed:</strong> <code>LPUSH</code> + <code>LTRIM</code> to keep last N events.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="redis-sets">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Sets</div>
-              <div class="check-item-desc">
-                Unordered collection of unique strings. O(1) add/remove/membership test.
-                <code>SADD</code> / <code>SMEMBERS</code> / <code>SISMEMBER</code> / <code>SCARD</code> (count) / <code>SREM</code>.
-                Set operations: <code>SUNION</code>, <code>SINTER</code> (intersection), <code>SDIFF</code>.
-                Use cases: unique visitors per day, user tags, social graph (followers: <code>SINTER user:1:following user:2:following</code> = mutual follows), IP blocklist membership checks.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="redis-sorted-sets">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Sorted Sets (ZSets)</div>
-              <div class="check-item-desc">
-                Every member has a <em>score</em> (float). Members are unique; scores are not.
-                <code>ZADD leaderboard 1500 alice</code> / <code>ZRANGE</code> (asc) / <code>ZREVRANGE</code> (desc) / <code>ZRANK</code> / <code>ZSCORE</code> / <code>ZINCRBY</code>.
-                <strong>Leaderboard:</strong> scores = points, <code>ZREVRANGE … WITHSCORES</code> for top-N.
-                <strong>Rate limiter (sliding window):</strong> score = timestamp, member = request_id. <code>ZREMRANGEBYSCORE 0 (now-window)</code> to remove old entries, <code>ZCARD</code> to count.
-                <strong>Priority queue:</strong> score = priority or scheduled time.
-              </div>
-            </div>
-          </li>
-
+        <h3>Eviction Policies</h3>
+        <p>When a cache is full, it must evict entries to make room. Redis policies (set via <code>maxmemory-policy</code>):</p>
+        <ul>
+          <li><strong>allkeys-lru</strong>: evict the least recently used key across all keys. Good default for caches.</li>
+          <li><strong>volatile-lru</strong>: LRU but only among keys with a TTL set. Preserves non-expiring keys.</li>
+          <li><strong>allkeys-lfu</strong>: evict the least frequently used. Better than LRU when access patterns are stable (protects hot keys that haven't been accessed recently).</li>
+          <li><strong>noeviction</strong>: return errors when memory is full. Never use for a cache (use for a primary data store where you need writes to fail explicitly).</li>
         </ul>
+
+        <h3>Refresh-Ahead</h3>
+        <p>The cache proactively refreshes entries before they expire, based on predicted access patterns. Entries are refreshed in the background before the TTL runs out. Users always get cache hits at the cost of sometimes refreshing entries that won't be accessed again. Good for: predictable hot keys (top-N leaderboard, trending content) where you know demand will continue.</p>
+
+        <figure class="diagram">
+          <img src="../images/caching/refresh-ahead.png" alt="Refresh-ahead: cache proactively refreshes entries before expiry">
+          <figcaption>Refresh-ahead: cache asynchronously refreshes entries before they expire. Eliminates the miss penalty for frequently-accessed hot data.</figcaption>
+        </figure>
+
+        <h3>Cache Stampede / Thundering Herd</h3>
+        <p>When a hot, heavily-cached key expires simultaneously for thousands of requests, all of them miss and simultaneously hit the database. Solutions: <strong>locking</strong> (only one request populates the cache, others wait or return stale), <strong>probabilistic early expiration</strong> (a request randomly decides to refresh the cache slightly before it expires, staggering the expiry across the population), or <strong>stale-while-revalidate</strong> (serve the stale value immediately while a background job refreshes it).</p>
       </div>
     </div>
 
-    <!-- HTTP CACHING & CDN -->
-    <div class="section">
+    <!-- SECTION 2: REDIS DEEP DIVE -->
+    <div class="section" data-id="redis">
       <div class="section-header">
-        <span class="section-icon">🌍</span>
-        <h2>HTTP Caching &amp; CDN</h2>
+        <div class="section-header-left"><span class="section-icon">🔴</span><h2>Redis Deep Dive</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
-        <ul class="checklist">
+        <p>Redis is an in-memory data structure server. "In-memory" means reads and writes are orders of magnitude faster than any disk-backed database — typically sub-millisecond. It's single-threaded for command execution (Redis 6+ uses I/O threads for networking, but commands still execute serially), which eliminates locking overhead and makes behavior predictable. Single-threaded also means one slow command (like <code>KEYS *</code> on a large keyspace) blocks all other commands. This is why <code>KEYS</code> is banned in production — use <code>SCAN</code> instead.</p>
 
-          <li class="check-item" data-id="cache-control">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Cache-Control &amp; Conditional Requests</div>
-              <div class="check-item-desc">
-                Key directives: <code>max-age=3600</code> (fresh for 1h), <code>s-maxage</code> (for shared caches/CDNs), <code>no-cache</code> (must revalidate before using), <code>no-store</code> (never store), <code>private</code> (browser only, not CDN), <code>public</code>, <code>must-revalidate</code>, <code>stale-while-revalidate=60</code> (serve stale while refreshing in background).
-                <strong>ETag:</strong> server sends <code>ETag: "abc123"</code>; client sends <code>If-None-Match: "abc123"</code>; server returns <strong>304 Not Modified</strong> if unchanged (saves bandwidth, not latency).
-                <strong>Last-Modified</strong> / <code>If-Modified-Since</code>: same pattern with timestamps. ETags are more precise.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="cdn">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">CDN</div>
-              <div class="check-item-desc">
-                Geographically distributed edge servers cache content close to users. Reduces latency (physics: speed of light) and offloads origin.
-                <strong>Origin pull</strong> (most common): edge fetches from origin on first miss, caches per <code>Cache-Control</code>. <strong>Origin push:</strong> you upload assets to CDN.
-                <strong>Cache-Control</strong> headers on your origin control CDN TTLs. Use long TTLs for hashed assets (<code>main.abc123.js</code>), short TTLs for HTML.
-                <strong>Purge/invalidation APIs:</strong> CloudFront Invalidation, Cloudflare Cache Purge — use on deploy. Surrogate keys / cache tags let you purge all cache entries tagged with a specific product ID.
-                Edge computing (Cloudflare Workers, Lambda@Edge) runs code at the edge for dynamic content.
-              </div>
-            </div>
-          </li>
-
+        <h3>Data Structures</h3>
+        <p>Redis isn't just a key-value store — it has rich data structures, each optimized for specific access patterns:</p>
+        <ul>
+          <li><strong>String</strong>: bytes, integers, or serialized JSON. <code>GET</code>/<code>SET</code>/<code>INCR</code>/<code>EXPIRE</code>. Use for: simple cache values, counters, distributed locks. <code>INCR</code> is atomic — safe for counting without a mutex.</li>
+          <li><strong>Hash</strong>: field-value pairs in a single key. <code>HGET</code>/<code>HSET</code>/<code>HGETALL</code>. Use for: object fields where you want to read/update individual fields without deserializing the whole object. More memory-efficient than a string per field for small hashes (Redis uses ziplist encoding internally).</li>
+          <li><strong>List</strong>: ordered list with O(1) push/pop from both ends. <code>LPUSH</code>/<code>RPOP</code>/<code>LRANGE</code>/<code>BLPOP</code> (blocking pop). Use for: queues (<code>LPUSH</code> + <code>BRPOP</code>), activity feeds, task queues. Not great for random access by index.</li>
+          <li><strong>Set</strong>: unordered collection of unique strings. <code>SADD</code>/<code>SMEMBERS</code>/<code>SISMEMBER</code>/<code>SUNION</code>/<code>SINTER</code>. Use for: unique visitor tracking, tag systems, friends-of-friends intersections. <code>SADD</code> is idempotent — adding a duplicate is a no-op.</li>
+          <li><strong>Sorted Set (ZSet)</strong>: set where each member has a float score. Members sorted by score. <code>ZADD</code>/<code>ZRANGE</code>/<code>ZRANGEBYSCORE</code>/<code>ZRANK</code>. Use for: leaderboards, priority queues, rate limiting (score = timestamp), autocomplete. One of Redis's most powerful structures.</li>
+          <li><strong>HyperLogLog</strong>: probabilistic structure for counting unique elements with constant memory (~12KB regardless of cardinality). Error rate ~0.81%. <code>PFADD</code>/<code>PFCOUNT</code>. Use for: "how many unique users visited today?" when an approximate answer is sufficient.</li>
+          <li><strong>Stream</strong>: append-only log of messages. Consumer groups for parallel processing, acknowledgment, and pending entry redelivery on consumer failure. Use for: event log, message queue with consumer groups (similar to Kafka partitions but simpler). Added in Redis 5.0.</li>
         </ul>
+
+        <h3>Persistence</h3>
+        <p>Redis is in-memory, but can persist to disk:</p>
+        <ul>
+          <li><strong>RDB (Snapshot)</strong>: periodic point-in-time snapshot of the full dataset. Fast to load on restart, compact files, but you lose data written between snapshots. Good for: cache that can tolerate cold start.</li>
+          <li><strong>AOF (Append-Only File)</strong>: log every write command and replay on restart. Three fsync policies: <code>always</code> (maximum durability, perf hit), <code>everysec</code> (lose at most 1s of data — recommended), <code>no</code> (OS decides when to flush, fastest, least safe). For a primary data store (sessions, rate limit counters, queues), use AOF with <code>everysec</code>.</li>
+        </ul>
+
+        <h3>Practical Patterns</h3>
+        <p><strong>Distributed lock</strong>: <code>SET lock:resource unique_token NX PX 30000</code> — atomic set-if-not-exists with 30s TTL. Release by deleting the key only if the value matches your token (use a Lua script for atomic check-and-delete — prevents releasing another process's lock after your TTL expired and they acquired it).</p>
+        <p><strong>Rate limiting with sorted sets</strong>: per-user sorted set where score = Unix timestamp. Add a request: <code>ZADD rl:user:123 $now $requestId</code>. Remove old entries: <code>ZREMRANGEBYSCORE rl:user:123 0 ($now - windowMs)</code>. Count requests: <code>ZCARD rl:user:123</code>. Compare to limit. Wrap in a Lua script for atomicity.</p>
+        <p><strong>Session storage</strong>: <code>HSET session:$token user_id 123 role admin</code> with a TTL via <code>EXPIRE</code>. <code>HGETALL</code> to load. Expire the session on logout with <code>DEL</code>.</p>
+
+        <h3>Redis Cluster vs Sentinel</h3>
+        <p><strong>Sentinel</strong>: high availability for a single primary. Sentinel processes monitor the primary and replicas, detect failures, and promote a replica automatically. Up to a few GB of data. Good for HA without horizontal scaling.</p>
+        <p><strong>Cluster</strong>: horizontal sharding across multiple primaries. Data distributed across 16,384 hash slots assigned to primaries. Enables multi-TB datasets and horizontal write scaling. Trade-off: multi-key commands must target keys in the same slot — use hash tags like <code>{user:123}:cart</code> and <code>{user:123}:profile</code> to force the same slot.</p>
       </div>
     </div>
 
-    <!-- Q&A -->
-    <div class="section">
+    <!-- SECTION 3: HTTP CACHING & CDN -->
+    <div class="section" data-id="http-caching">
       <div class="section-header">
-        <span class="section-icon">🧠</span>
-        <h2>Quick Review</h2>
+        <div class="section-header-left"><span class="section-icon">🌍</span><h2>HTTP Caching &amp; CDN</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
+        <p>HTTP has built-in caching semantics. Understanding them means you can cache responses in browsers, reverse proxies, and CDNs without writing any application code — just HTTP headers. This is the highest-leverage caching: it removes load entirely, not just database load.</p>
 
-        <details class="qa">
-          <summary>What are the cache eviction policies and when do you use each?</summary>
-          <div class="qa-body">
-            <p><strong>LRU (Least Recently Used):</strong> evicts the item least recently accessed. Good general-purpose choice — assumes recently accessed items will be accessed again.</p>
-            <p><strong>LFU (Least Frequently Used):</strong> evicts the item with the lowest access count. Better for skewed access patterns (some items always popular) but more expensive to track. Redis uses LFU approximation.</p>
-            <p><strong>TTL-based:</strong> items expire after a set time regardless of usage. Guarantees freshness. Redis: <code>EXPIRE key 300</code>.</p>
-            <p><strong>Random:</strong> evicts a random key. Surprisingly effective at low overhead.</p>
-            <p>Redis <code>maxmemory-policy</code> options: <code>allkeys-lru</code>, <code>volatile-lru</code> (only keys with TTL), <code>allkeys-lfu</code>, <code>allkeys-random</code>, <code>noeviction</code> (return errors when full).</p>
-          </div>
-        </details>
+        <h3>Cache-Control Header</h3>
+        <p>The primary mechanism for controlling caching behavior:</p>
+        <ul>
+          <li><code>max-age=3600</code> — cache for 3600 seconds. Browsers and CDNs both respect this.</li>
+          <li><code>no-cache</code> — confusingly named: <em>does</em> cache, but must revalidate with the server before using cached content. Useful when content may change but you want conditional requests to avoid re-downloading.</li>
+          <li><code>no-store</code> — never cache at all. Use for sensitive data (banking, health records).</li>
+          <li><code>private</code> — browser caches it, CDNs/proxies don't. Use for personalized authenticated responses.</li>
+          <li><code>public</code> — anyone can cache it. Use for static assets and public API responses.</li>
+          <li><code>s-maxage=86400</code> — like <code>max-age</code> but only for shared caches (CDNs). Lets you set different TTLs for CDN vs browser.</li>
+          <li><code>stale-while-revalidate=60</code> — serve stale content while revalidating in background for up to 60s. Aggressive caching without cold-start latency spikes.</li>
+        </ul>
 
-        <details class="qa">
-          <summary>Why delete a key on invalidation rather than updating it?</summary>
-          <div class="qa-body">
-            <p>Updating (SET) the cache on write can cause a <strong>race condition</strong>: if two concurrent writes race, a slower write may overwrite a newer value:</p>
-            <ol>
-              <li>Request A reads value (v1), starts computing</li>
-              <li>Request B writes v2 to DB and cache</li>
-              <li>Request A finishes, writes v1 to cache — now stale!</li>
-            </ol>
-            <p>Deleting the key means the next read will fetch from DB, always getting the latest value. The race is between the delete and the next read, which is much rarer and self-correcting. This pattern is called <strong>"cache-aside with delete on write"</strong>.</p>
-          </div>
-        </details>
+        <h3>Conditional Requests (Validation)</h3>
+        <p>Even when a cached response expires, you don't always need to re-download the full body. Conditional requests ask: "has this changed?" If not, the server responds with <code>304 Not Modified</code> — much cheaper than a full response.</p>
+        <ul>
+          <li><strong>ETag</strong>: server sends <code>ETag: "abc123"</code> (hash of content). Client sends <code>If-None-Match: "abc123"</code> on revalidation. Match = 304. Changed = 200 + new content + new ETag.</li>
+          <li><strong>Last-Modified</strong>: server sends <code>Last-Modified: Wed, 21 Oct 2024 07:28:00 GMT</code>. Client sends <code>If-Modified-Since: ...</code>. Unchanged = 304. ETags are more reliable — timestamps have 1-second granularity and can be unreliable across servers.</li>
+        </ul>
 
-        <details class="qa">
-          <summary>When would you use Redis Sorted Sets for rate limiting?</summary>
-          <div class="qa-body">
-            <p>Sliding window rate limiting: store each request as a member with the timestamp as its score.</p>
-            <pre>MULTI
-ZREMRANGEBYSCORE key 0 (now - window_ms)
-ZADD key now request_id
-ZCARD key
-EXPIRE key window_seconds
-EXEC</pre>
-            <p>If ZCARD exceeds the limit, reject the request. This gives you an exact sliding window with O(log N) operations. The downside is memory usage (storing every request); a sliding window counter approximation using two fixed-window buckets uses less memory.</p>
-          </div>
-        </details>
+        <h3>Cache Busting</h3>
+        <p>For static assets (JS, CSS, images), you want very long max-ages (1 year) so browsers never re-fetch them. When you deploy a new version, you need the browser to get the new file. The solution is <strong>content-addressed filenames</strong>: include the file's hash in the filename — <code>main.a3f7bc.js</code>. The URL changes with the content, so the browser's cache for the old URL is irrelevant, and the new URL gets a fresh cache with a long TTL. Webpack, Vite, and most bundlers do this automatically with <code>contenthash</code> in output filenames.</p>
 
+        <h3>CDN Architecture</h3>
+        <p>A CDN is a geographically distributed network of cache servers ("edge nodes" or "PoPs — Points of Presence"). When a user requests a resource: DNS resolves to the nearest edge node via anycast or latency-based routing. If the edge has it cached (HIT) — served immediately, millisecond latency. If not (MISS) — edge fetches from your origin, caches the response, serves the user. Subsequent requests on the same edge are HITs.</p>
+        <p>CDNs are most valuable for: static assets (99%+ hit rates after warm-up), global user bases (edge near the user is far better than a round-trip to your single-region origin), and absorbing traffic spikes (CDN handles most requests; origin only sees misses). For dynamic content, modern edge compute platforms (Cloudflare Workers, Lambda@Edge) let you run code at the edge — caching personalized content, A/B testing, or response transformation without a full origin round-trip.</p>
+
+        <figure class="diagram">
+          <img src="../images/http-networking/cdn.jpg" alt="CDN architecture: users routed to nearest edge node, edge caches origin content">
+          <figcaption>CDN edge nodes cache origin content geographically close to users. A cache HIT serves without touching origin; a MISS fetches from origin, caches the response, and serves subsequent requests from the edge.</figcaption>
+        </figure>
+
+        <h3>Vary Header</h3>
+        <p><code>Vary: Accept-Encoding</code> tells CDNs to cache separate copies of a response for different encodings. Without it, a CDN might serve a gzip-compressed response to a client that can't handle it. Common: <code>Vary: Accept-Encoding</code> (gzip vs brotli vs none). Avoid <code>Vary: Cookie</code> at the CDN level — every cookie value becomes a separate cache entry, effectively disabling caching.</p>
       </div>
     </div>
 
-    <!-- RESOURCES -->
-    <div class="section">
+    <!-- GO DEEPER -->
+    <div class="section" style="border-style:dashed;">
       <div class="section-header">
-        <span class="section-icon">📚</span>
-        <h2>Go Deeper</h2>
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
       </div>
       <div class="section-body">
         <div class="resource-list">
-
-          <div class="resource">
-            <span class="resource-type docs">docs</span>
-            <div class="resource-content">
-              <div class="resource-title">Redis Documentation — Data Types</div>
-              <div class="resource-author">redis.io/docs</div>
-              <div class="resource-desc">The official Redis docs are excellent — each data type page explains commands, complexity, and practical use cases. The "Patterns" section covers distributed locks, pub/sub, and rate limiting in depth.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type blog">blog</span>
-            <div class="resource-content">
-              <div class="resource-title">Caching Strategies and How to Choose the Right One</div>
-              <div class="resource-author">Codeahoy blog</div>
-              <div class="resource-desc">Clear visual explanations of cache-aside, read-through, write-through, write-behind, and write-around with diagrams. Good first read before diving into Redis docs.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type blog">blog</span>
-            <div class="resource-content">
-              <div class="resource-title">HTTP Caching — MDN Web Docs</div>
-              <div class="resource-author">developer.mozilla.org</div>
-              <div class="resource-desc">Definitive reference for Cache-Control directives, ETags, conditional requests, and the browser cache. More detailed and accurate than most blog posts on the topic.</div>
-            </div>
-          </div>
-
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">Redis Documentation — Data Types &amp; Commands</div><div class="resource-author">redis.io/docs</div><div class="resource-desc">The official docs are excellent. Read the data types introduction, then skim the command reference for each type. The interactive playground lets you run commands without installing anything.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Caching Strategies and How to Choose</div><div class="resource-author">codeahoy.com</div><div class="resource-desc">Clear visual walkthrough of cache-aside, read-through, write-through, and write-behind with diagrams. Good for cementing the read/write strategy distinctions.</div></div></div>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">MDN — HTTP Caching</div><div class="resource-author">developer.mozilla.org/en-US/docs/Web/HTTP/Caching</div><div class="resource-desc">The authoritative reference for HTTP caching headers. Every Cache-Control directive explained with examples. Bookmark this for reference.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Redis University — RU101: Introduction to Redis Data Structures</div><div class="resource-author">university.redis.com</div><div class="resource-desc">Free, structured course. 4–6 hours. Labs with a real Redis instance. Best hands-on introduction to Redis data structures available.</div></div></div>
         </div>
       </div>
     </div>
@@ -338,17 +211,15 @@ EXEC</pre>
 <footer class="site-footer">
   <div class="module-nav">
     <a href="system-design.html">← System Design</a>
-    <a href="../index.html" class="center">All modules</a>
+    <a href="../backend.html" class="center">All modules</a>
     <a href="http-networking.html">HTTP &amp; APIs →</a>
   </div>
 </footer>
 
 <script src="../js/app.js"></script>
 <script>
-  initChecklist('caching');
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('../sw.js').catch(() => {});
-  }
+  initSections('caching');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
 </script>
 </body>
 </html>

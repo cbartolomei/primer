@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Go Concurrency — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="inner">
+    <a href="../go.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 5 sections understood</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>⚡ Go Concurrency</h1>
+    <p class="subtitle">Go's concurrency model is one of its defining strengths. Goroutines and channels make concurrent code readable and composable — but the primitives have sharp edges you need to understand.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <div class="section" data-id="goroutines">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🧵</span><h2>Goroutines</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>A goroutine is a lightweight thread managed by the Go runtime, not the OS. You can start thousands — even millions — of goroutines in a single program. The keyword <code>go</code> is all it takes to start one:</p>
+        <pre><code>go someFunction()         // start function as goroutine
+go func() {               // anonymous function as goroutine
+    fmt.Println("hello")
+}()
+
+// Goroutine with arguments — capture by value, not reference
+name := "Alice"
+go func(n string) {
+    fmt.Println(n) // safe: n is a copy
+}(name)</code></pre>
+
+        <h3>How Goroutines Work: M:N Scheduling</h3>
+        <p>Go uses an <strong>M:N scheduler</strong>: M goroutines are multiplexed onto N OS threads. The runtime manages this automatically.</p>
+        <p>The scheduler has three key concepts:</p>
+        <ul>
+          <li><strong>G</strong> — a goroutine, the unit of concurrent work</li>
+          <li><strong>M</strong> — an OS thread ("machine"), what actually runs on a CPU core</li>
+          <li><strong>P</strong> — a processor, a logical CPU context that holds a run queue of goroutines. <code>GOMAXPROCS</code> controls how many Ps exist (default: number of CPU cores)</li>
+        </ul>
+        <p>When a goroutine blocks on I/O or a system call, the scheduler parks that goroutine and gives the M to a different runnable goroutine. This is why you can have 100,000 goroutines blocking on network I/O without needing 100,000 OS threads — the blocked goroutines just don't occupy an M while waiting.</p>
+
+        <h3>Goroutine Stacks</h3>
+        <p>OS threads start with 1–8 MB stacks that are fixed at creation. Goroutines start with a tiny stack (~2 KB on current Go) that grows and shrinks dynamically. The runtime can handle stack growth transparently — goroutines don't panic on stack overflow the way C programs do. This small initial stack is the main reason millions of goroutines are practical.</p>
+
+        <h3>Goroutine Leaks: The #1 Bug</h3>
+        <p>A goroutine leaks when it starts but never terminates. Over time, leaked goroutines accumulate memory and hold whatever resources they're waiting on (locks, channels, connections). In long-running servers this is fatal.</p>
+        <p>The most common leak: a goroutine blocked forever waiting to receive from a channel that no one ever sends to, or blocked sending to a channel no one reads:</p>
+        <pre><code>// LEAK — goroutine blocks forever if result is never read
+func search(query string) {
+    ch := make(chan Result)
+    go func() {
+        ch &lt;- doSearch(query) // blocks if caller abandoned early
+    }()
+    // if caller returns here without reading ch, goroutine leaks
+    return
+}
+
+// FIX — use buffered channel or pass a done signal
+func search(ctx context.Context, query string) (Result, error) {
+    ch := make(chan Result, 1) // buffered: goroutine won't block
+    go func() {
+        ch &lt;- doSearch(query)
+    }()
+    select {
+    case r := &lt;-ch:
+        return r, nil
+    case &lt;-ctx.Done():
+        return Result{}, ctx.Err()
+    }
+}</code></pre>
+        <p>The rule: <strong>every goroutine you start must have a way to terminate.</strong> Either it runs to completion, or it listens on a done channel / context cancellation and exits when signaled.</p>
+
+        <h3>WaitGroup for Fan-Out</h3>
+        <p>When you launch N goroutines and need to wait for all of them to finish:</p>
+        <pre><code>var wg sync.WaitGroup
+
+for _, url := range urls {
+    wg.Add(1)
+    go func(u string) {
+        defer wg.Done() // always defer Done so it runs even on panic
+        fetch(u)
+    }(url) // pass url by value to avoid loop closure bug
+}
+
+wg.Wait() // blocks until all goroutines call Done</code></pre>
+      </div>
+    </div>
+
+    <div class="section" data-id="channels">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📡</span><h2>Channels</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Channels are the primary communication mechanism between goroutines. The Go mantra: <strong>"Do not communicate by sharing memory; instead, share memory by communicating."</strong> A channel is a typed conduit — only values of the declared type can flow through it.</p>
+        <pre><code>ch := make(chan int)        // unbuffered channel of ints
+bch := make(chan string, 5) // buffered channel, capacity 5
+
+ch &lt;- 42      // send (blocks until receiver is ready if unbuffered)
+v := &lt;-ch     // receive (blocks until a value is sent)
+v, ok := &lt;-ch // ok=false if channel is closed and drained</code></pre>
+
+        <h3>Unbuffered vs Buffered</h3>
+        <p><strong>Unbuffered</strong> (capacity 0): send and receive must happen simultaneously. The sender blocks until a receiver is ready, and vice versa. This is a synchronous rendezvous — a guarantee that the communication happened.</p>
+        <p><strong>Buffered</strong> (capacity N): send blocks only when the buffer is full; receive blocks only when the buffer is empty. Acts like a bounded queue between goroutines. Use when:</p>
+        <ul>
+          <li>You want to decouple the producer and consumer's timing</li>
+          <li>The goroutine producing results doesn't need to wait for them to be consumed (fire-and-collect)</li>
+          <li>You want to prevent a goroutine from leaking when the caller may not read the result</li>
+        </ul>
+        <pre><code>// Buffered channel as a semaphore — limit concurrency to N
+sem := make(chan struct{}, N)
+
+for _, job := range jobs {
+    sem &lt;- struct{}{}  // acquire slot (blocks when N running)
+    go func(j Job) {
+        defer func() { &lt;-sem }() // release slot
+        process(j)
+    }(job)
+}
+// Wait for all to finish: drain the semaphore
+for i := 0; i &lt; N; i++ {
+    sem &lt;- struct{}{}
+}</code></pre>
+
+        <h3>Closing Channels</h3>
+        <p>Only the <em>sender</em> should close a channel. Closing signals "no more values will be sent." Receiving from a closed, drained channel returns the zero value immediately with <code>ok=false</code>:</p>
+        <pre><code>close(ch) // sender closes when done
+
+// Range over channel — stops when channel is closed and drained
+for v := range ch {
+    process(v) // range exits when ch is closed
+}
+
+// Manual check
+v, ok := &lt;-ch
+if !ok {
+    // channel closed and drained
+}</code></pre>
+        <div class="note note-danger">
+          <strong>Never close a channel from the receiver side.</strong> Sending to a closed channel panics. If multiple goroutines might send, use a sync mechanism (sync.Once or a done channel) to coordinate closing.
+          <pre><code>// Pattern: one sender closes, multiple receivers range
+func produce(ch chan&lt;- int) {
+    defer close(ch) // sender defers close
+    for i := 0; i &lt; 10; i++ {
+        ch &lt;- i
+    }
+}</code></pre>
+        </div>
+
+        <h3>Directional Channels</h3>
+        <p>You can restrict a channel to send-only (<code>chan&lt;- T</code>) or receive-only (<code>&lt;-chan T</code>). Use these in function signatures to make intent explicit and let the compiler enforce it:</p>
+        <pre><code>func producer(ch chan&lt;- int) {  // can only send
+    ch &lt;- 1
+}
+
+func consumer(ch &lt;-chan int) {  // can only receive
+    v := &lt;-ch
+    _ = v
+}
+
+func pipeline(in &lt;-chan int, out chan&lt;- int) {
+    for v := range in {
+        out &lt;- v * 2
+    }
+    close(out)
+}</code></pre>
+
+        <h3>nil Channels</h3>
+        <p>A nil channel blocks forever on both send and receive. This is actually useful in <code>select</code> statements: you can disable a case by setting its channel to nil:</p>
+        <pre><code>var ch chan int // nil
+&lt;-ch           // blocks forever
+
+// Useful pattern: disable a select case
+func merge(a, b &lt;-chan int) &lt;-chan int {
+    out := make(chan int)
+    go func() {
+        defer close(out)
+        for a != nil || b != nil {
+            select {
+            case v, ok := &lt;-a:
+                if !ok { a = nil; continue } // disable this case
+                out &lt;- v
+            case v, ok := &lt;-b:
+                if !ok { b = nil; continue }
+                out &lt;- v
+            }
+        }
+    }()
+    return out
+}</code></pre>
+      </div>
+    </div>
+
+    <div class="section" data-id="select-sync">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔒</span><h2>select &amp; sync Primitives</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>The <code>select</code> statement waits on multiple channel operations simultaneously. It's to channels what a <code>switch</code> is to values. The <code>sync</code> package provides traditional mutex-based primitives for cases where shared memory and explicit locking are cleaner than channels.</p>
+
+        <h3>select</h3>
+        <pre><code>select {
+case v := &lt;-ch1:
+    fmt.Println("got from ch1:", v)
+case ch2 &lt;- x:
+    fmt.Println("sent to ch2")
+case &lt;-time.After(5 * time.Second):
+    fmt.Println("timeout")
+default:
+    // runs immediately if no channel is ready — makes select non-blocking
+    fmt.Println("nothing ready")
+}</code></pre>
+        <p>When multiple cases are ready simultaneously, Go picks one at random (uniform random selection). This prevents starvation.</p>
+        <p>Common patterns:</p>
+        <pre><code>// Timeout on a slow operation
+select {
+case result := &lt;-done:
+    return result, nil
+case &lt;-time.After(3 * time.Second):
+    return nil, errors.New("timeout")
+}
+
+// Cancellation with a done channel
+for {
+    select {
+    case &lt;-done:
+        return // exit loop when signaled
+    case work := &lt;-jobs:
+        process(work)
+    }
+}
+
+// Non-blocking send — drop if not ready
+select {
+case ch &lt;- event:
+    // sent
+default:
+    // channel full or no receiver — drop event
+}</code></pre>
+
+        <h3>sync.Mutex</h3>
+        <p>Use a mutex when multiple goroutines need to read and write shared state and a channel would be awkward (e.g., protecting a map used as a cache):</p>
+        <pre><code>type SafeMap struct {
+    mu   sync.Mutex
+    data map[string]int
+}
+
+func (m *SafeMap) Set(k string, v int) {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+    m.data[k] = v
+}
+
+func (m *SafeMap) Get(k string) (int, bool) {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+    v, ok := m.data[k]
+    return v, ok
+}</code></pre>
+        <div class="note note-warning">
+          <strong>Do not copy a Mutex after first use.</strong> A mutex contains internal state; copying it creates a new, unlocked mutex while the original may be locked — a subtle data race. Always embed a mutex in a struct or use a pointer to one. <code>go vet</code> catches this with the <code>copylocks</code> check.
+        </div>
+
+        <h3>sync.RWMutex</h3>
+        <p>When reads vastly outnumber writes, <code>sync.RWMutex</code> allows multiple concurrent readers but exclusive writer access:</p>
+        <pre><code>type Cache struct {
+    mu    sync.RWMutex
+    items map[string]Item
+}
+
+func (c *Cache) Get(key string) (Item, bool) {
+    c.mu.RLock()           // multiple goroutines can hold RLock simultaneously
+    defer c.mu.RUnlock()
+    item, ok := c.items[key]
+    return item, ok
+}
+
+func (c *Cache) Set(key string, item Item) {
+    c.mu.Lock()            // exclusive — no readers or other writers
+    defer c.mu.Unlock()
+    c.items[key] = item
+}</code></pre>
+
+        <h3>sync.Once</h3>
+        <p>Guarantees a function runs exactly once, regardless of how many goroutines call it. Classic use: lazy singleton initialization:</p>
+        <pre><code>var (
+    instance *Database
+    once     sync.Once
+)
+
+func GetDB() *Database {
+    once.Do(func() {
+        instance = connectToDB()
+    })
+    return instance
+}</code></pre>
+
+        <h3>sync.WaitGroup</h3>
+        <p>Already shown with goroutines — but the key rules:</p>
+        <ul>
+          <li>Call <code>wg.Add(n)</code> <em>before</em> starting goroutines, not inside them</li>
+          <li>Always <code>defer wg.Done()</code> so it runs even if the goroutine panics</li>
+          <li>Don't copy a WaitGroup — pass a pointer</li>
+        </ul>
+
+        <h3>sync/atomic</h3>
+        <p>For simple counter increments and flag checks, <code>sync/atomic</code> operations are faster than a mutex because they don't involve OS scheduling:</p>
+        <pre><code>import "sync/atomic"
+
+var counter int64
+
+atomic.AddInt64(&counter, 1)         // thread-safe increment
+n := atomic.LoadInt64(&counter)      // thread-safe read
+atomic.StoreInt64(&counter, 0)       // thread-safe write
+atomic.CompareAndSwapInt64(&counter, old, new) // CAS</code></pre>
+        <p>Use atomics for isolated counter/flag operations. For anything more complex (multiple fields updated together), use a mutex.</p>
+      </div>
+    </div>
+
+    <div class="section" data-id="context">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🎛️</span><h2>Context</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>The <code>context</code> package provides a standard way to carry deadlines, cancellation signals, and request-scoped values across API boundaries and between goroutines. Every long-running operation in Go that might need to be cancelled — an HTTP handler, a database query, a background job — should accept a <code>context.Context</code> as its first argument.</p>
+
+        <h3>Context Types</h3>
+        <pre><code>// Background — the root context, never cancelled, no deadline
+ctx := context.Background()
+
+// TODO — placeholder for when you're not sure which context to use
+ctx := context.TODO()
+
+// WithCancel — manually cancel
+ctx, cancel := context.WithCancel(parent)
+defer cancel() // ALWAYS call cancel to free resources
+
+// WithTimeout — cancel after duration
+ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+defer cancel()
+
+// WithDeadline — cancel at absolute time
+deadline := time.Now().Add(5 * time.Second)
+ctx, cancel := context.WithDeadline(parent, deadline)
+defer cancel()
+
+// WithValue — attach request-scoped values
+type key string
+ctx = context.WithValue(ctx, key("requestID"), "req_abc123")</code></pre>
+        <div class="note note-warning">
+          <strong>Always call <code>cancel()</code></strong> — even when the timeout has already elapsed, or you've already checked <code>ctx.Done()</code>. Failing to call cancel leaks the goroutine that drives cancellation. Use <code>defer cancel()</code> immediately after creating the context.
+        </div>
+
+        <h3>Checking Cancellation</h3>
+        <pre><code>// ctx.Done() returns a channel closed when context is cancelled
+// ctx.Err() returns the error: Canceled or DeadlineExceeded
+
+func doWork(ctx context.Context) error {
+    for {
+        select {
+        case &lt;-ctx.Done():
+            return ctx.Err() // context.Canceled or context.DeadlineExceeded
+        case item := &lt;-workQueue:
+            if err := process(ctx, item); err != nil {
+                return err
+            }
+        }
+    }
+}
+
+// Long blocking call — pass context for cancellation
+rows, err := db.QueryContext(ctx, "SELECT ...")
+req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)</code></pre>
+
+        <h3>Context Propagation</h3>
+        <p>A context forms a tree: child contexts inherit their parent's deadline and cancellation. When a parent is cancelled, all its children are cancelled too. This propagation is the key design — you cancel a root context (say, an HTTP request's context) and all downstream operations automatically stop:</p>
+        <pre><code>// HTTP handler — context is tied to the request lifetime
+func handleSearch(w http.ResponseWriter, r *http.Request) {
+    ctx := r.Context() // already has deadline from server's timeout config
+
+    results, err := searchDB(ctx, r.URL.Query().Get("q"))
+    if err != nil {
+        if errors.Is(err, context.Canceled) {
+            // client disconnected — no need to write response
+            return
+        }
+        http.Error(w, err.Error(), 500)
+        return
+    }
+    json.NewEncoder(w).Encode(results)
+}
+
+func searchDB(ctx context.Context, query string) ([]Result, error) {
+    // ctx carries the deadline — DB driver respects it
+    rows, err := db.QueryContext(ctx, "SELECT * FROM items WHERE name LIKE ?", query)
+    // ...
+}</code></pre>
+
+        <h3>WithValue: Use Sparingly</h3>
+        <p>Context values are for request-scoped data that crosses API boundaries: trace IDs, auth tokens, request IDs. They are not a general-purpose parameter-passing mechanism:</p>
+        <pre><code>// Use unexported key types to avoid collisions between packages
+type contextKey string
+const requestIDKey contextKey = "requestID"
+
+func WithRequestID(ctx context.Context, id string) context.Context {
+    return context.WithValue(ctx, requestIDKey, id)
+}
+
+func RequestIDFromContext(ctx context.Context) (string, bool) {
+    id, ok := ctx.Value(requestIDKey).(string)
+    return id, ok
+}</code></pre>
+        <div class="note note-warning">
+          Don't use built-in types (string, int) as context keys — any package could use the same key and cause collisions. Always define an unexported type for your package's context keys.
+        </div>
+
+        <h3>Context Rules</h3>
+        <ul>
+          <li><code>context.Background()</code> is for top-level entry points (main, init, tests). Never use it inside a library.</li>
+          <li>Pass context as the first argument named <code>ctx</code>: <code>func Foo(ctx context.Context, ...)</code></li>
+          <li>Never store a context inside a struct field — pass it through the call chain instead.</li>
+          <li>Context is immutable — each <code>With*</code> call creates a new child; the parent is unaffected.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="section" data-id="concurrency-patterns">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔀</span><h2>Concurrency Patterns</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go's primitives — goroutines, channels, select, sync — compose into higher-level patterns. These are the patterns you'll reach for repeatedly in real production code.</p>
+
+        <h3>Pipeline</h3>
+        <p>A pipeline chains stages: each stage receives values from upstream via a channel, transforms them, and sends results downstream. Stages run concurrently:</p>
+        <pre><code>func generate(nums ...int) &lt;-chan int {
+    out := make(chan int)
+    go func() {
+        defer close(out)
+        for _, n := range nums {
+            out &lt;- n
+        }
+    }()
+    return out
+}
+
+func square(in &lt;-chan int) &lt;-chan int {
+    out := make(chan int)
+    go func() {
+        defer close(out)
+        for n := range in {
+            out &lt;- n * n
+        }
+    }()
+    return out
+}
+
+// Compose into a pipeline
+nums := generate(2, 3, 4)
+squares := square(nums)
+for v := range squares {
+    fmt.Println(v) // 4, 9, 16
+}</code></pre>
+
+        <h3>Fan-Out / Fan-In</h3>
+        <p><strong>Fan-out</strong>: distribute work from one channel to multiple goroutines. <strong>Fan-in</strong>: merge results from multiple goroutines into one channel:</p>
+        <pre><code>// Fan-out: start N workers all reading from the same input channel
+func fanOut(in &lt;-chan Work, n int) []&lt;-chan Result {
+    channels := make([]&lt;-chan Result, n)
+    for i := 0; i &lt; n; i++ {
+        channels[i] = worker(in)
+    }
+    return channels
+}
+
+// Fan-in: merge N result channels into one
+func fanIn(channels ...&lt;-chan Result) &lt;-chan Result {
+    out := make(chan Result)
+    var wg sync.WaitGroup
+    for _, ch := range channels {
+        wg.Add(1)
+        go func(c &lt;-chan Result) {
+            defer wg.Done()
+            for r := range c {
+                out &lt;- r
+            }
+        }(ch)
+    }
+    go func() {
+        wg.Wait()
+        close(out)
+    }()
+    return out
+}</code></pre>
+
+        <h3>Worker Pool</h3>
+        <p>Bound the number of concurrent goroutines by pre-allocating a fixed set of workers that all read from a shared job queue:</p>
+        <pre><code>func workerPool(ctx context.Context, jobs &lt;-chan Job, numWorkers int) &lt;-chan Result {
+    results := make(chan Result, numWorkers)
+
+    var wg sync.WaitGroup
+    for i := 0; i &lt; numWorkers; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            for {
+                select {
+                case job, ok := &lt;-jobs:
+                    if !ok {
+                        return // jobs channel closed
+                    }
+                    results &lt;- process(ctx, job)
+                case &lt;-ctx.Done():
+                    return
+                }
+            }
+        }()
+    }
+
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+
+    return results
+}</code></pre>
+
+        <h3>errgroup</h3>
+        <p><code>golang.org/x/sync/errgroup</code> is the idiomatic way to run multiple goroutines and collect the first error. It handles WaitGroup and error collection for you:</p>
+        <pre><code>import "golang.org/x/sync/errgroup"
+
+func fetchAll(ctx context.Context, urls []string) ([]Page, error) {
+    g, ctx := errgroup.WithContext(ctx) // ctx cancelled if any goroutine errors
+    pages := make([]Page, len(urls))
+
+    for i, url := range urls {
+        i, url := i, url // capture loop vars
+        g.Go(func() error {
+            p, err := fetch(ctx, url)
+            if err != nil {
+                return fmt.Errorf("fetch %s: %w", url, err)
+            }
+            pages[i] = p
+            return nil
+        })
+    }
+
+    if err := g.Wait(); err != nil {
+        return nil, err // returns first non-nil error
+    }
+    return pages, nil
+}
+
+// Limit concurrency with errgroup.SetLimit
+g.SetLimit(10) // at most 10 goroutines at once</code></pre>
+
+        <h3>Done Channel for Cancellation</h3>
+        <p>Before <code>context</code> was idiomatic, the done channel pattern was the standard way to signal cancellation. You'll still see it in code that predates context:</p>
+        <pre><code>func worker(done &lt;-chan struct{}) {
+    for {
+        select {
+        case &lt;-done:
+            return // shutdown signal received
+        default:
+            doWork()
+        }
+    }
+}
+
+done := make(chan struct{})
+go worker(done)
+
+// Signal all goroutines listening on done to stop
+close(done) // closing broadcasts to all receivers</code></pre>
+        <p>Closing a channel broadcasts to all goroutines receiving from it — they all unblock simultaneously. This makes it the right primitive for "stop all workers" scenarios, unlike a regular send which only wakes one receiver.</p>
+
+        <h3>Choosing: Channels vs Mutexes</h3>
+        <p>The guidance "share memory by communicating" is a principle, not a rule. Mutexes are simpler and faster for protecting shared state. Use channels when:</p>
+        <ul>
+          <li>You're passing ownership of data between goroutines (the sender gives up access)</li>
+          <li>You're distributing work (job queues, pipelines)</li>
+          <li>You're signaling an event (done channels, cancellation)</li>
+        </ul>
+        <p>Use mutexes when:</p>
+        <ul>
+          <li>Multiple goroutines need to read/write shared data concurrently (caches, counters)</li>
+          <li>You're protecting a simple invariant and channels would add indirection</li>
+          <li>You need <code>RWMutex</code> semantics (many readers, occasional writers)</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Resources -->
+    <div class="section" style="border-style:dashed;">
+      <div class="section-header" style="border-bottom:none;">
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
+      </div>
+      <div class="section-body">
+        <div class="resource-list">
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Go Concurrency Patterns</div><div class="resource-author">Rob Pike — talks.golang.org/2012/concurrency.slide</div><div class="resource-desc">The canonical introduction to Go's concurrency model. Pipelines, fan-out, fan-in, and cancellation patterns, explained by one of Go's designers. Watch the video too.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Advanced Go Concurrency Patterns</div><div class="resource-author">Sameer Ajmani — talks.golang.org/2013/advconc.slide</div><div class="resource-desc">The follow-up to Rob Pike's talk. Covers context-based cancellation before the context package existed, and more complex pipeline patterns.</div></div></div>
+          <div class="resource"><span class="resource-type book">book</span><div class="resource-content"><div class="resource-title">Concurrency in Go</div><div class="resource-author">Katherine Cox-Buday — O'Reilly</div><div class="resource-desc">The most thorough treatment of Go concurrency. Covers the memory model, every sync primitive, patterns, and debugging. Read chapters 3 and 4 after this page.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Visualizing Concurrency in Go</div><div class="resource-author">Ivan Daniluk — divan.dev</div><div class="resource-desc">Animated visualizations of goroutine execution patterns. Builds intuition for how goroutines actually interleave in practice.</div></div></div>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">The Go Memory Model</div><div class="resource-author">go.dev/ref/mem</div><div class="resource-desc">Defines what's guaranteed when goroutines read and write shared memory. Required reading before writing any non-trivial concurrent code. The "happens-before" relationship explained precisely.</div></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <a href="go-control-data.html">← Control Structures &amp; Data</a>
+    <a href="../go.html" class="center">All modules</a>
+    <a href="go-patterns.html">Patterns &amp; Idioms →</a>
+  </div>
+</footer>
+
+<script src="../js/app.js"></script>
+<script src="../js/highlight.js"></script>
+<script>
+  initSections('go-concurrency');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
+</script>
+</body>
+</html>

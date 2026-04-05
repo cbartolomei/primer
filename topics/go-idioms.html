@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Go Idioms — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="inner">
+    <a href="../go.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 5 sections understood</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>💡 Go Idioms</h1>
+    <p class="subtitle">The conventions Effective Go teaches but aren't always obvious from syntax alone — documentation, naming, the blank identifier, embedding, and why almost anything can satisfy an interface.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <div class="section" data-id="godoc">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📝</span><h2>Documentation &amp; godoc</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go treats documentation as part of the language toolchain, not an afterthought. The <code>go doc</code> command and <code>pkg.go.dev</code> extract documentation from comments written in a specific style. No special markup language — just Go comments following conventions the tools understand.</p>
+
+        <h3>Doc comments</h3>
+        <p>A doc comment is a comment immediately preceding a top-level declaration with no blank line between them. By convention it begins with the name of the thing it describes:</p>
+        <pre><code>// Package bufio implements buffered I/O. It wraps an io.Reader or io.Writer
+// object, creating another object (Reader or Writer) that also implements
+// the interface but provides buffering and some help for textual I/O.
+package bufio
+
+// NewReader returns a new Reader whose buffer has at least the specified
+// size. If the argument io.Reader already implements *Reader with large enough
+// size, it returns the underlying *Reader.
+func NewReader(rd io.Reader) *Reader { ... }
+
+// Reader implements buffering for an io.Reader object.
+type Reader struct { ... }
+
+// Read reads data into p.
+// It returns the number of bytes read into p.
+// The bytes are taken from at most one Read on the underlying Reader,
+// hence n may be less than len(p).
+func (b *Reader) Read(p []byte) (n int, err error) { ... }</code></pre>
+        <p><strong>Start with the name.</strong> <code>// NewReader returns...</code> not <code>// This function returns...</code>. This is enforced by convention because <code>go doc</code> displays comments prefixed with the declaration name, and it reads naturally when the comment itself begins with the name.</p>
+
+        <h3>Package doc comments</h3>
+        <p>Every package should have a package comment — a doc comment on the <code>package</code> clause. For large packages with multiple files, the convention is to put the package comment in a dedicated <code>doc.go</code> file:</p>
+        <pre><code>// Package http provides HTTP client and server implementations.
+//
+// Get, Head, Post, and PostForm make HTTP (or HTTPS) requests:
+//
+//	resp, err := http.Get("http://example.com/")
+//	...
+//	resp, err := http.Post("http://example.com/upload", "image/jpeg", &buf)
+//
+// The client must close the response body when finished with it:
+//
+//	resp, err := http.Get("http://example.com/")
+//	if err != nil {
+//		// handle error
+//	}
+//	defer resp.Body.Close()
+//	body, err := io.ReadAll(resp.Body)
+package http</code></pre>
+
+        <h3>Example functions</h3>
+        <p>Functions named <code>Example*</code> in <code>_test.go</code> files are shown in documentation and run as tests. The output comment is compared against actual output:</p>
+        <pre><code>// ExampleHello shows a simple greeting.
+func ExampleHello() {
+    fmt.Println(Hello("Gopher"))
+    // Output:
+    // Hello, Gopher!
+}
+
+// ExampleCache_Get shows how to use the Cache's Get method.
+// (Format: ExampleType_Method)
+func ExampleCache_Get() {
+    c := NewCache()
+    c.Set("key", "value")
+    fmt.Println(c.Get("key"))
+    // Output:
+    // value
+}</code></pre>
+
+        <h3>go doc</h3>
+        <pre><code>go doc fmt              # package overview
+go doc fmt.Printf       # specific function
+go doc net/http.Client  # type
+go doc -all fmt         # everything in the package</code></pre>
+        <p>Reading <code>go doc</code> output is the fastest way to look up a stdlib function without leaving the terminal. It's worth making it a habit over always reaching for a browser.</p>
+      </div>
+    </div>
+
+    <div class="section" data-id="naming">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🏷️</span><h2>Naming Conventions</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go naming conventions are tight, and the community enforces them through code review. <code>gofmt</code> handles formatting; the conventions here are about what names to choose. They're not stylistic preference — they're how Go communicates intent.</p>
+
+        <h3>Package names</h3>
+        <p>Lowercase, single word, no underscores or mixedCaps. The package name is an accessor for its contents — users will write <code>bufio.Reader</code>, not <code>buf_io.Reader</code>. Short is better because every caller types it:</p>
+        <pre><code>// Good — short, lowercase, single word
+package http
+package bytes
+package sync
+package strconv
+
+// Bad
+package httpUtils   // MixedCaps
+package string_util // underscore
+package utilities   // vague — says nothing about what's in it
+
+// The package name IS part of the exported name
+// bufio.Reader — not bufio.BufReader (redundant)
+// time.Now    — not time.CurrentTime
+// ring.New    — not ring.NewRing (Ring is the only type in ring)</code></pre>
+        <p>Avoid package names like <code>util</code>, <code>common</code>, <code>misc</code>, <code>helpers</code>. These names say nothing about what the package contains — they become dumping grounds for unrelated code. Name packages after what they provide, not what they are.</p>
+
+        <h3>Getters — no Get prefix</h3>
+        <p>Go doesn't use the <code>GetX</code> convention for getters. If the field is <code>owner</code> (unexported), the getter is <code>Owner()</code> (exported), not <code>GetOwner()</code>:</p>
+        <pre><code>type Connection struct {
+    owner string  // unexported
+}
+
+// GOOD — no Get prefix
+func (c *Connection) Owner() string { return c.owner }
+func (c *Connection) SetOwner(s string) { c.owner = s }
+
+// BAD — GetX is a Java-ism, not idiomatic Go
+func (c *Connection) GetOwner() string { return c.owner }
+
+// Usage reads naturally without Get:
+conn.Owner()
+conn.SetOwner("alice")</code></pre>
+
+        <h3>Interface names — the -er suffix</h3>
+        <p>Single-method interfaces are named by appending <code>-er</code> to the method name. This is a strong Go convention:</p>
+        <pre><code>type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+type Stringer interface {
+    String() string
+}
+type Closer interface {
+    Close() error
+}
+type Formatter interface {
+    Format(f State, verb rune)
+}
+
+// Your own interfaces should follow the same convention
+type Executer interface {
+    Execute(ctx context.Context) error
+}
+type Validator interface {
+    Validate() error
+}</code></pre>
+        <p>For multi-method interfaces, name them by what they represent: <code>io.ReadWriter</code>, <code>http.Handler</code>, <code>sort.Interface</code>. The name should describe the behavior, not the implementation.</p>
+
+        <h3>MixedCaps, not underscores</h3>
+        <pre><code>// Good — MixedCaps (exported) or mixedCaps (unexported)
+MaxRetries        // exported constant
+parseURL          // unexported function
+numCPU            // unexported variable
+HTTPStatusCode    // acronyms ALL CAPS
+
+// Bad — Go doesn't use underscores for names
+max_retries
+parse_url
+http_status_code
+MAX_RETRIES  // not Go style for constants
+
+// Acronyms stay all-caps or all-lowercase, never mixed
+URLPath   // not UrlPath
+userID    // not userId or user_id
+serveHTTP // not serveHttp</code></pre>
+
+        <h3>Error variable naming</h3>
+        <pre><code>// Sentinel errors: Err prefix
+var ErrNotFound = errors.New("not found")
+var ErrTimeout  = errors.New("timeout")
+var ErrInvalid  = errors.New("invalid argument")
+
+// Error types: end with Error
+type ValidationError struct { Field, Message string }
+type PathError struct { Op, Path string; Err error }
+
+// The error variable itself: err (or the specific meaning)
+if err := doThing(); err != nil { ... }
+if authErr := checkAuth(req); authErr != nil { ... }</code></pre>
+      </div>
+    </div>
+
+    <div class="section" data-id="blank-identifier">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">⬛</span><h2>The Blank Identifier</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>The blank identifier <code>_</code> is a write-only placeholder: any value can be assigned to it, and it is always discarded. It has four distinct uses, each with a specific purpose.</p>
+
+        <h3>1. Discard an unwanted value in multiple assignment</h3>
+        <pre><code>// Discard the index in a range loop
+for _, v := range slice { ... }
+
+// Discard the value, keep the key
+for k := range m { ... }  // shorthand — no _ needed on right
+for k, _ := range m { ... }  // explicit but redundant
+
+// Discard the error — almost always wrong
+fi, _ := os.Stat(path)  // BAD: if path doesn't exist, fi is nil → panic
+
+// Discard a return value you genuinely don't need
+_, present := m[key]  // only care if key exists, not its value</code></pre>
+        <div class="note note-danger">
+          Discarding an error with <code>_</code> is almost always a bug. Every error is returned for a reason. The only valid exception is when you are certain the operation cannot fail given your preconditions, or you're in a context where it genuinely doesn't matter (like closing a temp file in a deferred cleanup after the main work is done).
+        </div>
+
+        <h3>2. Silence unused import/variable errors during development</h3>
+        <p>Go won't compile if you import a package or declare a variable without using it. During active development, use <code>_</code> as a temporary placeholder — but remove it before committing:</p>
+        <pre><code>import (
+    "fmt"
+    "os"
+)
+
+var _ = fmt.Printf // silences "imported and not used: fmt"
+var _ = os.Stdin   // silences "imported and not used: os"
+
+func main() {
+    fd, err := os.Open("test.go")
+    if err != nil {
+        log.Fatal(err)
+    }
+    _ = fd  // silences "fd declared and not used"
+    // TODO: use fd
+}</code></pre>
+
+        <h3>3. Import for side effects only</h3>
+        <p>When you need a package's <code>init()</code> to run but won't use any of its exported names, import it as <code>_</code>:</p>
+        <pre><code>import _ "net/http/pprof"    // registers /debug/pprof HTTP handlers
+import _ "image/png"         // registers PNG decoder
+import _ "github.com/lib/pq" // registers Postgres SQL driver</code></pre>
+        <p>This makes the intent explicit: the import is there for side effects, not for the package's API. Without the blank import, the compiler would reject it as unused.</p>
+
+        <h3>4. Compile-time interface compliance check</h3>
+        <p>This is the least obvious use. Assign a nil pointer of your type to the interface — the compiler verifies the assignment is valid (i.e., the type satisfies the interface) without creating any runtime value:</p>
+        <pre><code>// Guarantees *RawMessage implements json.Marshaler at compile time.
+// If the interface changes or the method is missing, this line fails.
+var _ json.Marshaler = (*RawMessage)(nil)
+
+// Guarantees *Handler implements http.Handler
+var _ http.Handler = (*Handler)(nil)
+
+// Useful when you have no static conversion that would catch this automatically.
+// Without this, a missing method might only surface at runtime when the
+// interface value is passed to something that uses it.</code></pre>
+        <p>This pattern lives in the package that implements the type, right after the type declaration. It's a contract in code: "this type is supposed to satisfy this interface — fail the build if it doesn't."</p>
+      </div>
+    </div>
+
+    <div class="section" data-id="embedding">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🧱</span><h2>Embedding</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Embedding is Go's answer to inheritance — but it's not inheritance. An embedded type's methods are promoted to the outer type, but the embedded type is the receiver, not the outer type. This distinction matters and is the source of most embedding confusion.</p>
+
+        <h3>Interface embedding</h3>
+        <p>Interfaces can embed other interfaces. The result is the union of all methods:</p>
+        <pre><code>// From the io package — the definitive example
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+// ReadWriter embeds both — a type must implement both Read and Write
+type ReadWriter interface {
+    Reader
+    Writer
+}
+
+// This is more expressive than listing methods explicitly
+// and automatically stays in sync if Reader or Writer change
+
+// You can embed as many interfaces as needed
+type ReadWriteCloser interface {
+    Reader
+    Writer
+    Closer
+}</code></pre>
+
+        <h3>Struct embedding — avoiding forwarding methods</h3>
+        <p>Without embedding, wiring a type through another requires writing explicit forwarding methods for each method you want to expose. Embedding eliminates this boilerplate:</p>
+        <pre><code>// WITHOUT embedding — tedious forwarding methods
+type ReadWriter struct {
+    reader *bufio.Reader
+    writer *bufio.Writer
+}
+func (rw *ReadWriter) Read(p []byte) (n int, err error) {
+    return rw.reader.Read(p) // forward to embedded field
+}
+func (rw *ReadWriter) Write(p []byte) (n int, err error) {
+    return rw.writer.Write(p)
+}
+
+// WITH embedding — methods promoted automatically
+type ReadWriter struct {
+    *bufio.Reader  // no field name — promotes all Reader methods
+    *bufio.Writer  // promotes all Writer methods
+}
+// ReadWriter now automatically satisfies io.Reader, io.Writer, io.ReadWriter
+// No forwarding methods needed</code></pre>
+        <p>Embedding <code>*bufio.Reader</code> vs <code>bufio.Reader</code> matters: embedding a pointer means the struct's zero value has a nil pointer field — you must initialize it before use. Embedding a value means the struct always contains a copy.</p>
+
+        <h3>Practical embedding — adding behavior to a type</h3>
+        <pre><code>// Embed *log.Logger to give any struct logging capability
+type Job struct {
+    Command string
+    *log.Logger  // embedded — promotes Print, Printf, Println, etc.
+}
+
+func NewJob(command string, logger *log.Logger) *Job {
+    return &Job{command, logger}
+}
+
+job := NewJob("process", log.New(os.Stderr, "job: ", log.Ldate))
+job.Printf("starting command: %s", job.Command) // promoted method
+
+// Override by defining your own method with the same name
+func (job *Job) Printf(format string, args ...interface{}) {
+    // Add command prefix to every log line
+    job.Logger.Printf("[%s] "+format, append([]interface{}{job.Command}, args...)...)
+}</code></pre>
+
+        <h3>The key distinction from inheritance</h3>
+        <p>When an embedded method is called, <code>self</code> is the <em>inner type</em>, not the outer type. The outer type does not "override" embedded methods — it wraps them. This is critical:</p>
+        <pre><code>type Animal struct{ Name string }
+func (a *Animal) Describe() string { return "I am " + a.Name }
+
+type Dog struct {
+    *Animal
+    Breed string
+}
+
+d := &Dog{Animal: &Animal{Name: "Rex"}, Breed: "Lab"}
+d.Describe()         // "I am Rex" — receiver is *Animal, not *Dog
+d.Animal.Describe()  // same — explicit
+
+// Dog does NOT "is-a" Animal in the type system
+var a *Animal = d     // COMPILE ERROR — cannot assign *Dog to *Animal
+var a *Animal = d.Animal // correct — get the embedded field directly</code></pre>
+        <p>This is why embedding is "composition over inheritance" — not a subtype relationship, just method promotion. A <code>*Dog</code> is not substitutable for <code>*Animal</code>. But any interface that <code>*Animal</code> satisfies, <code>*Dog</code> also satisfies — because the promoted methods are available on <code>*Dog</code>.</p>
+
+        <h3>Name conflicts</h3>
+        <p>If two embedded types have a field or method with the same name, the outer type's name wins. If both are at the same embedding depth and neither is shadowed by the outer type, it's a compile error if you try to use the conflicting name:</p>
+        <pre><code>type A struct{ Name string }
+type B struct{ Name string }
+
+type C struct {
+    A
+    B
+}
+
+c := C{}
+// c.Name  // compile error: ambiguous selector c.Name
+c.A.Name  // OK — explicit
+c.B.Name  // OK — explicit</code></pre>
+      </div>
+    </div>
+
+    <div class="section" data-id="function-types">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔧</span><h2>Methods on Any Type &amp; the Generality Principle</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>In Go, you can define methods on any named type — not just structs. This includes named integer types, named slice types, and named function types. This is the foundation of one of Go's most elegant patterns.</p>
+
+        <h3>Methods on non-struct types</h3>
+        <pre><code>// Method on a named integer type
+type Celsius float64
+type Fahrenheit float64
+
+func (c Celsius) ToFahrenheit() Fahrenheit {
+    return Fahrenheit(c*9/5 + 32)
+}
+func (f Fahrenheit) ToCelsius() Celsius {
+    return Celsius((f - 32) * 5 / 9)
+}
+
+// Method on a named slice type — implements sort.Interface
+type ByLength []string
+
+func (s ByLength) Len() int           { return len(s) }
+func (s ByLength) Less(i, j int) bool { return len(s[i]) < len(s[j]) }
+func (s ByLength) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+
+words := []string{"banana", "apple", "fig"}
+sort.Sort(ByLength(words))</code></pre>
+
+        <h3>Function types satisfying interfaces — the HandlerFunc pattern</h3>
+        <p>The most powerful application: define a method on a function type so that the function itself satisfies an interface. The canonical example is <code>http.HandlerFunc</code>:</p>
+        <pre><code>// http.Handler is an interface
+type Handler interface {
+    ServeHTTP(ResponseWriter, *Request)
+}
+
+// HandlerFunc is a function type with a method that satisfies Handler
+type HandlerFunc func(ResponseWriter, *Request)
+
+func (f HandlerFunc) ServeHTTP(w ResponseWriter, r *Request) {
+    f(w, r) // call the function itself
+}
+
+// Now any function with the right signature can be used as a Handler
+func myHandler(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintln(w, "hello")
+}
+
+// Convert function to HandlerFunc — which satisfies http.Handler
+http.Handle("/", http.HandlerFunc(myHandler))
+
+// http.HandleFunc does this conversion for you
+http.HandleFunc("/", myHandler)</code></pre>
+        <p>This pattern means you can implement an interface with a plain function, without creating a struct. It reduces boilerplate for simple cases while still allowing complex struct-based implementations for cases that need state.</p>
+
+        <h3>The Generality Principle</h3>
+        <p>From Effective Go: "If a type exists only to implement an interface and will never have exported methods beyond that interface, there is no need to export the type itself. Exporting just the interface makes it clear the value has no interesting behavior beyond what is described in the interface."</p>
+        <p>In practice: when your constructor returns an interface value rather than the concrete type, callers are decoupled from the implementation. Swapping implementations requires only changing the constructor call:</p>
+        <pre><code>// GOOD — constructor returns the interface; callers are decoupled
+func NewHasher(algorithm string) hash.Hash {
+    switch algorithm {
+    case "crc32":
+        return crc32.NewIEEE()
+    case "adler32":
+        return adler32.New()
+    default:
+        return sha256.New()
+    }
+}
+
+// Callers use hash.Hash methods — don't know or care which algorithm
+h := NewHasher("crc32")
+h.Write(data)
+checksum := h.Sum(nil)
+
+// Switching from CRC32 to SHA256 requires ONE change — the constructor arg
+// Everything that uses h is unaffected</code></pre>
+        <p><strong>When to apply this:</strong> when the concrete type has no exported methods beyond the interface it implements, when callers should be insulated from the specific implementation, or when you anticipate the need to swap implementations (different environments, testing, A/B behavior).</p>
+        <p><strong>When NOT to apply this:</strong> when the concrete type has useful exported methods beyond the interface — returning an interface hides them and forces callers to type-assert. The rule "accept interfaces, return concrete types" is the safe default; return interfaces only when the generality is worth the tradeoff.</p>
+
+        <h3>Type conversion to access a different method set</h3>
+        <p>Converting between types that share the same underlying type is zero-cost — it just changes which methods are accessible. This is a lightweight alternative to embedding when you need one operation in a different context:</p>
+        <pre><code>type Sequence []int
+
+func (s Sequence) String() string {
+    // Convert to []int to use fmt.Sprint's slice formatting
+    // (avoids recursion — []int has no String() method)
+    sorted := make(Sequence, len(s))
+    copy(sorted, s)
+    sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+    return fmt.Sprint([]int(sorted))
+}
+
+// Convert to sort.IntSlice to get its Sort() method directly
+type Sequence []int
+func (s Sequence) Sort() {
+    sort.IntSlice(s).Sort() // convert, call Sort, convert back — zero cost
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- Resources -->
+    <div class="section" style="border-style:dashed;">
+      <div class="section-header" style="border-bottom:none;">
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
+      </div>
+      <div class="section-body">
+        <div class="resource-list">
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">Effective Go — Names, Commentary, Embedding, Blank Identifier</div><div class="resource-author">go.dev/doc/effective_go</div><div class="resource-desc">The primary source for everything in this section. The embedding section is especially worth reading in full — the bufio.ReadWriter example crystallizes why method promotion is more useful than it first appears.</div></div></div>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">Go Doc Comments</div><div class="resource-author">go.dev/doc/comment</div><div class="resource-desc">The complete, up-to-date guide to Go documentation comments. Covers links, lists, code blocks, and the new doc comment syntax added in Go 1.19. More thorough than the Effective Go treatment.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">CodeReviewComments — Names</div><div class="resource-author">github.com/golang/go/wiki/CodeReviewComments</div><div class="resource-desc">The naming section of Go's code review wiki documents real comments from Go team reviews. Covers MixedCaps, package names, variable names, and error naming in detail.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">The Laws of Reflection</div><div class="resource-author">go.dev/blog/laws-of-reflection</div><div class="resource-desc">Interfaces and their internal two-word representation (type, value) explained at the language-design level. Essential context for understanding the nil interface trap, type assertions, and why reflection works the way it does.</div></div></div>
+          <div class="resource"><span class="resource-type book">book</span><div class="resource-content"><div class="resource-title">100 Go Mistakes — Chapters 2, 3 &amp; 5</div><div class="resource-author">Teiva Harsanyi — Manning</div><div class="resource-desc">Chapter 2 covers code organization and naming mistakes, Chapter 3 covers data types (including slice and map footguns), Chapter 5 covers interface mistakes including the nil interface trap and over-use of any. Each mistake is a real bug pattern with diagnosis and fix.</div></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <a href="go-patterns.html">← Patterns &amp; Idioms</a>
+    <a href="../go.html" class="center">All modules</a>
+    <a href="go-http.html">HTTP Servers →</a>
+  </div>
+</footer>
+
+<script src="../js/app.js"></script>
+<script src="../js/highlight.js"></script>
+<script>
+  initSections('go-idioms');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
+</script>
+</body>
+</html>

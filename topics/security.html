@@ -10,16 +10,13 @@
   <link rel="stylesheet" href="../css/style.css">
 </head>
 <body>
-
 <header class="site-header">
   <div class="inner">
-    <a href="../index.html" class="header-back">← Back</a>
-    <span class="site-logo">pri<span>m</span>er</span>
+    <a href="../backend.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
     <div class="header-progress">
-      <div class="progress-bar-wrap">
-        <div class="progress-bar" id="topic-progress-bar" style="width:0%"></div>
-      </div>
-      <div class="progress-label" id="topic-progress-label">0 / 10 concepts covered</div>
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 3 sections understood</div>
     </div>
   </div>
 </header>
@@ -27,272 +24,175 @@
 <main class="container">
   <div class="page-hero">
     <h1>🔐 Security</h1>
-    <p class="subtitle">Authentication, authorization, OAuth 2.0, CORS, common web vulnerabilities, and secrets management.</p>
+    <p class="subtitle">Authentication, authorization, the vulnerabilities that actually get exploited, and how to handle secrets and transport correctly.</p>
   </div>
 
   <div class="topic-content">
 
-    <!-- AUTH FUNDAMENTALS -->
-    <div class="section">
+    <!-- SECTION 1: AUTHENTICATION & AUTHORIZATION -->
+    <div class="section" data-id="authn-authz">
       <div class="section-header">
-        <span class="section-icon">🔑</span>
-        <h2>Authentication &amp; Authorization</h2>
+        <div class="section-header-left"><span class="section-icon">🪪</span><h2>Authentication &amp; Authorization</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
-        <ul class="checklist">
+        <p><strong>Authentication</strong> (AuthN) = who are you? <strong>Authorization</strong> (AuthZ) = what are you allowed to do? They're often conflated but are distinct concerns. A valid JWT tells you who the user is. A role check tells you if they can access a resource. Both are required.</p>
 
-          <li class="check-item" data-id="authn-authz">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">AuthN vs AuthZ</div>
-              <div class="check-item-desc">
-                <strong>Authentication (AuthN):</strong> verifying <em>who you are</em> — identity. "Prove you are Alice."
-                <strong>Authorization (AuthZ):</strong> determining <em>what you can do</em> — permissions. "Alice can read invoices but not delete them."
-                Common mistakes: (1) checking AuthN but skipping AuthZ — assuming all logged-in users can do everything. (2) Trusting client-supplied role/permission claims without verifying server-side. (3) Failing open when an auth service is unreachable. Always fail closed.
-              </div>
-            </div>
-          </li>
+        <h3>Session-Based Authentication</h3>
+        <p>The classic model: user logs in, server creates a session record in the database or Redis, and sets a session cookie (<code>Set-Cookie: session_id=abc123; HttpOnly; Secure; SameSite=Strict</code>). On each request, the browser sends the cookie, the server looks up the session, and if valid, processes the request. Server-side state: simple to revoke (delete the session record), but requires a session store that all instances can access — horizontal scaling requires a shared Redis or database, not local memory.</p>
 
-          <li class="check-item" data-id="sessions-jwt">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Sessions vs JWT</div>
-              <div class="check-item-desc">
-                <strong>Session-based:</strong> server generates a session ID, stores session data server-side (in Redis/DB), client holds cookie. Easy to invalidate (delete from store). Stateful — scales horizontally with shared session store.
-                <strong>JWT (JSON Web Token):</strong> <code>header.payload.signature</code> — base64url encoded (not encrypted by default — anyone can decode the payload!). Stateless — server just verifies signature, no DB lookup. Cannot be invalidated without a blocklist (negating stateless benefit). Use short expiry (15 min) + refresh token flow. Never store sensitive data in payload.
-                <strong>Common errors:</strong> <code>alg: none</code> attack, accepting any algorithm, symmetric vs asymmetric key confusion.
-              </div>
-            </div>
-          </li>
+        <h3>JWT (JSON Web Tokens)</h3>
+        <p>A JWT is a signed, base64-encoded JSON object. Structure: <code>header.payload.signature</code>. The header specifies the algorithm (<code>RS256</code>, <code>HS256</code>). The payload contains claims: <code>sub</code> (subject/user ID), <code>exp</code> (expiration), <code>iat</code> (issued at), and any custom claims (roles, tenant ID). The signature lets any service verify the token without calling the issuing server — this is the key architectural advantage.</p>
+        <pre><code>// Payload (decoded)
+{
+  "sub": "user_789",
+  "exp": 1712000000,
+  "iat": 1711996400,
+  "roles": ["editor"],
+  "org_id": "org_abc"
+}</code></pre>
+        <p><strong>JWT tradeoffs</strong>: stateless verification scales well — any service instance can validate a JWT with the public key, no shared session store needed. But you can't revoke a JWT before it expires (the token is self-contained). Solutions: short expiry (15 minutes) + refresh tokens (longer-lived, stored server-side), or a token blocklist in Redis (reintroduces centralized state but keeps token validation fast). Never put sensitive data in JWT payloads — they're base64-encoded, not encrypted (anyone can decode them). Use <code>RS256</code> (asymmetric) for multi-service architectures so services can verify without knowing the signing secret.</p>
 
-          <li class="check-item" data-id="oauth2">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">OAuth 2.0 &amp; OIDC</div>
-              <div class="check-item-desc">
-                OAuth 2.0 is an <em>authorization</em> framework (delegate access, not authentication). OIDC (OpenID Connect) adds identity on top — provides an ID token (JWT) with user info.
-                <strong>Authorization Code Flow</strong> (web apps): redirect to IdP → user authenticates → code returned → exchange code for tokens on backend. Code is single-use, tokens never in browser history.
-                <strong>PKCE</strong> (Proof Key for Code Exchange): for SPAs/mobile where there's no client secret. Generate code_verifier → hash → code_challenge. Prevents auth code interception.
-                <strong>Client Credentials</strong> (M2M): service authenticates directly with client_id + secret.
-                Always validate the <code>state</code> parameter to prevent CSRF on the redirect.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="cors">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">CORS</div>
-              <div class="check-item-desc">
-                Browser's Same-Origin Policy blocks cross-origin requests (origin = scheme + host + port). CORS allows servers to explicitly permit cross-origin access.
-                Key response headers: <code>Access-Control-Allow-Origin</code>, <code>-Allow-Methods</code>, <code>-Allow-Headers</code>, <code>-Allow-Credentials</code> (if true, origin cannot be *), <code>-Max-Age</code> (preflight cache duration).
-                <strong>Never set <code>Access-Control-Allow-Origin: *</code> with credentials</strong> — browsers will block it, and it's a security risk.
-                <strong>Server-side validation:</strong> validate the Origin header on the server, don't rely solely on browser enforcement. APIs called server-to-server aren't subject to CORS.
-              </div>
-            </div>
-          </li>
-
+        <h3>OAuth 2.0</h3>
+        <p>OAuth 2.0 is an authorization framework — not an authentication protocol — that allows a user to grant a third party limited access to their resources without sharing credentials. The core flows:</p>
+        <ul>
+          <li><strong>Authorization Code flow</strong>: the standard flow for web and mobile apps. User is redirected to the authorization server, authenticates there, and is redirected back to your app with a short-lived authorization code. Your server exchanges the code for access and refresh tokens. The code is single-use and short-lived. Use PKCE (Proof Key for Code Exchange) even for server-side apps — it prevents authorization code interception.</li>
+          <li><strong>Client Credentials flow</strong>: for machine-to-machine (M2M) authentication. No user involved. Your service authenticates with client_id and client_secret and receives an access token. Use for: service-to-service API calls, scheduled jobs, background workers.</li>
+          <li><strong>Implicit flow</strong>: deprecated. Returned tokens directly in the URL fragment — vulnerable to token leakage. Never use this.</li>
+          <li><strong>Resource Owner Password flow</strong>: user sends credentials directly to your app, which exchanges them for tokens. Only acceptable if you fully own both the client and authorization server. Otherwise, don't use it.</li>
         </ul>
+
+        <figure class="diagram">
+          <img src="../images/security/oauth-flow.jpg" alt="OAuth 2.0 authorization code flow: user, client, authorization server, resource server">
+          <figcaption>OAuth 2.0 Authorization Code flow. The authorization code exchanged at step 3 is single-use and short-lived — it's safe to pass through the browser redirect. Tokens are exchanged server-to-server, never exposed in the URL.</figcaption>
+        </figure>
+
+        <h3>OpenID Connect (OIDC)</h3>
+        <p>OIDC is an identity layer on top of OAuth 2.0 that adds authentication. OAuth 2.0 gives you authorization (what you can do); OIDC adds an ID token (JWT) that tells you who the user is. Most "Sign in with Google/GitHub/etc." implementations use OIDC. The ID token contains user identity claims (<code>sub</code>, <code>email</code>, <code>name</code>, <code>picture</code>). The access token is for calling APIs on behalf of the user.</p>
+
+        <h3>Password Storage</h3>
+        <p>Never store plaintext passwords. Never store MD5 or SHA-1 hashes — they're fast, which makes them easy to brute-force with a GPU. Use purpose-built, slow password hashing algorithms: <strong>bcrypt</strong>, <strong>scrypt</strong>, or <strong>Argon2id</strong> (winner of the Password Hashing Competition — the modern recommendation). These are designed to be slow and memory-hard. Configure the work factor/cost parameter so that hashing takes ~100–200ms on your hardware — expensive enough to make brute force impractical, cheap enough to not impact your login endpoint. Always salt: good password hashing libraries do this automatically; if yours doesn't, find a better library.</p>
+
+        <h3>Role-Based Access Control (RBAC)</h3>
+        <p>Assign users to roles; roles have permissions; check permissions at the enforcement point. Simple and effective for most applications. Coarser-grained than attribute-based access control (ABAC), which checks contextual attributes (user's department = resource's required department). For most backends: implement RBAC, enforce at the service/handler level (not just UI), and check authorization on every request — don't trust the frontend's representation of what the user can see.</p>
       </div>
     </div>
 
-    <!-- COMMON VULNERABILITIES -->
-    <div class="section">
+    <!-- SECTION 2: WEB VULNERABILITIES -->
+    <div class="section" data-id="vulnerabilities">
       <div class="section-header">
-        <span class="section-icon">⚠️</span>
-        <h2>Common Vulnerabilities</h2>
+        <div class="section-header-left"><span class="section-icon">🐛</span><h2>Web Vulnerabilities (OWASP Top 10)</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
-        <ul class="checklist">
+        <p>The OWASP Top 10 is a list of the most critical web application security risks. These aren't theoretical — they're what's actually being exploited in production systems. As a backend engineer you're responsible for preventing all of them in code you write.</p>
 
-          <li class="check-item" data-id="sql-injection">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">SQL Injection</div>
-              <div class="check-item-desc">
-                User input is interpreted as SQL. Classic: <code>' OR '1'='1</code> in a login form constructed via string concatenation.
-                <strong>Prevention:</strong> always use <em>parameterized queries</em> (prepared statements) — the DB driver separates code from data. Never concatenate user input into SQL strings.
-                ORMs protect by default but watch for raw query escape hatches (<code>.raw()</code>, <code>query()</code>). Also watch for second-order injection: data stored safely but then used unsafely in a later query.
-                Additional layers: least-privilege DB users (app user can't DROP tables), WAF rules.
-              </div>
-            </div>
-          </li>
+        <h3>SQL Injection</h3>
+        <p>Attacker inserts SQL into an input field that gets concatenated into a query string. Classic example:</p>
+        <pre><code>// Vulnerable — never do this
+const query = `SELECT * FROM users WHERE email = '${userInput}'`;
+// If userInput is: ' OR '1'='1
+// Query becomes: SELECT * FROM users WHERE email = '' OR '1'='1'
+// Returns all users
 
-          <li class="check-item" data-id="xss">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">XSS (Cross-Site Scripting)</div>
-              <div class="check-item-desc">
-                Injecting malicious scripts into pages viewed by other users. Types:
-                <strong>Stored:</strong> script saved in DB, served to all visitors (e.g. forum post).
-                <strong>Reflected:</strong> script in URL, reflected in response (e.g. search results page).
-                <strong>DOM-based:</strong> client-side JS writes attacker-controlled data to the DOM.
-                <strong>Prevention:</strong> output encoding (escape HTML entities before rendering), never use <code>innerHTML</code> with untrusted data, use <code>textContent</code> instead. <strong>Content Security Policy (CSP)</strong> headers — restrict which scripts can run. <code>HttpOnly</code> cookies — prevent JS access to session cookies.
-              </div>
-            </div>
-          </li>
+// Safe — parameterized query
+const user = await db.query(
+  'SELECT * FROM users WHERE email = $1',
+  [userInput]
+)</code></pre>
+        <p>The fix is always parameterized queries (prepared statements). The database driver separates the query structure from the data — user input is never interpreted as SQL. ORMs use parameterized queries by default, but raw query escape-hatches can reintroduce the vulnerability. Never use string concatenation or interpolation to build queries.</p>
 
-          <li class="check-item" data-id="csrf">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">CSRF (Cross-Site Request Forgery)</div>
-              <div class="check-item-desc">
-                A malicious site tricks the victim's browser into making an authenticated request to your site (the browser automatically sends cookies).
-                Example: <code>&lt;img src="https://bank.com/transfer?to=attacker&amp;amount=1000"&gt;</code>.
-                <strong>Prevention:</strong>
-                <strong>SameSite cookie attribute</strong>: <code>SameSite=Strict</code> (never cross-site) or <code>SameSite=Lax</code> (allows top-level navigations). Best first defense.
-                <strong>CSRF token</strong>: include a secret token in forms, validate server-side. Token must be per-session or per-request.
-                Check <code>Origin</code> / <code>Referer</code> headers. If using JSON APIs with <code>Content-Type: application/json</code>, simple CSRF is already blocked (preflight required).
-              </div>
-            </div>
-          </li>
+        <h3>Cross-Site Scripting (XSS)</h3>
+        <p>Attacker injects malicious script that executes in other users' browsers. <strong>Stored XSS</strong>: attacker stores <code>&lt;script&gt;document.cookie&lt;/script&gt;</code> in your database (comment field, profile name); your server renders it; every visitor's browser executes it. <strong>Reflected XSS</strong>: malicious script is in the URL; server reflects it back in the response.</p>
+        <p>Fix: escape HTML output (never render user input as raw HTML), use Content Security Policy (CSP) headers to restrict script sources, use the <code>HttpOnly</code> flag on cookies (prevents JavaScript from reading them). Modern framework templating (React, Vue, Angular) auto-escapes by default — only the explicit escape-hatches like <code>dangerouslySetInnerHTML</code> are dangerous. CSP header: <code>Content-Security-Policy: default-src 'self'; script-src 'self' cdn.example.com</code>.</p>
 
-          <li class="check-item" data-id="owasp">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">OWASP Top 10 (2021)</div>
-              <div class="check-item-desc">
-                <strong>A01 Broken Access Control</strong> — most common. Missing authz checks, IDOR (Insecure Direct Object Reference: <code>/invoice/1234</code> works for any user).
-                <strong>A02 Cryptographic Failures</strong> — transmitting sensitive data in plaintext, weak algorithms (MD5/SHA1 for passwords — use bcrypt/argon2).
-                <strong>A03 Injection</strong> — SQL, NoSQL, OS command, LDAP injection.
-                <strong>A04 Insecure Design</strong> — security must be designed in, not bolted on.
-                <strong>A05 Security Misconfiguration</strong> — default creds, debug mode in prod, verbose errors.
-                <strong>A06 Vulnerable Components</strong> — outdated dependencies with known CVEs.
-                <strong>A07 Auth Failures</strong> — broken auth, weak passwords, no brute-force protection.
-                <strong>A08 Software Integrity Failures</strong> — unsigned updates, CI/CD compromise.
-                <strong>A09 Security Logging Failures</strong> — no audit trail for security events.
-                <strong>A10 SSRF</strong> — Server-Side Request Forgery: attacker makes server fetch attacker-controlled URL (e.g. EC2 metadata endpoint).
-              </div>
-            </div>
-          </li>
+        <h3>Cross-Site Request Forgery (CSRF)</h3>
+        <p>Attacker tricks a logged-in user's browser into making a state-changing request to your server (a form submit or AJAX call). Because the browser sends cookies automatically, your server sees a valid session cookie and processes the malicious request.</p>
+        <p>Fix: <code>SameSite=Strict</code> or <code>SameSite=Lax</code> on session cookies (modern browsers won't send the cookie on cross-site requests), CSRF tokens (server generates a secret token per session, embeds it in forms, validates on POST), check the <code>Origin</code> header. For APIs using JWT in Authorization headers: CSRF is not an issue because browsers don't automatically add Authorization headers.</p>
 
+        <h3>Broken Authentication</h3>
+        <p>Includes: predictable session tokens (use cryptographically secure random tokens, at least 128 bits), session fixation (regenerate session ID after login), missing brute-force protection on login endpoints (rate limiting + account lockout), password storage mistakes (covered above), and missing session expiry (idle timeout + absolute timeout).</p>
+
+        <h3>Insecure Direct Object References (IDOR)</h3>
+        <p>User can access another user's data by changing a numeric ID in the URL: <code>/api/invoices/12345</code> → change to <code>/api/invoices/12346</code>. If your server returns the invoice without checking that it belongs to the requesting user, that's IDOR. Fix: every authorization check must verify that the authenticated user is allowed to access the specific resource, not just that they're logged in.</p>
+        <pre><code>// Vulnerable
+const invoice = await Invoice.findById(req.params.id);
+res.json(invoice);
+
+// Fixed
+const invoice = await Invoice.findOne({
+  id: req.params.id,
+  owner_id: req.user.id  // enforce ownership
+});
+if (!invoice) return res.status(404).json({ error: 'Not found' });</code></pre>
+
+        <h3>Security Misconfiguration</h3>
+        <p>The most common vulnerability category. Includes: default credentials not changed, debug endpoints accessible in production, verbose error messages exposing stack traces and internal paths, unnecessary services exposed, missing security headers. Checklist: remove debug/admin endpoints in production, disable directory listing, set security headers (X-Content-Type-Options, X-Frame-Options, Content-Security-Policy), restrict CORS to known origins, configure firewall rules.</p>
+
+        <h3>Mass Assignment</h3>
+        <p>User sends extra fields in a request body that the server blindly assigns to a model. Example: user sends <code>{"name": "Alice", "role": "admin"}</code> and your ORM updates all provided fields. Fix: explicitly whitelist which fields are allowed in updates. Never use <code>Object.assign(user, req.body)</code> or equivalent.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 3: TRANSPORT & SECRETS -->
+    <div class="section" data-id="transport-secrets">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔑</span><h2>Transport &amp; Secrets</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Even correct authentication logic is useless if secrets leak or traffic is intercepted. This section covers the operational layer: how to handle credentials, keys, and certificates correctly.</p>
+
+        <h3>Secrets Management</h3>
+        <p>Secrets include: database passwords, API keys, JWT signing secrets, OAuth client secrets, TLS private keys, and encryption keys. The rules:</p>
+        <ul>
+          <li><strong>Never commit secrets to version control.</strong> Once a secret is in git history, it should be treated as compromised — even if you delete it, it's in the commit history forever. Use <code>.gitignore</code> for <code>.env</code> files. Tools like GitGuardian or GitHub's secret scanning alert on leaked secrets, but prevention is better than detection.</li>
+          <li><strong>Use environment variables or a secrets manager.</strong> Environment variables (injected at deploy time) work for simple cases. For production: use a dedicated secrets manager — AWS Secrets Manager, HashiCorp Vault, GCP Secret Manager, or Doppler. These provide: audit logging of who accessed what, automatic rotation, fine-grained access control, and versioning.</li>
+          <li><strong>Rotate secrets regularly.</strong> Especially after team member offboarding, after an incident, or on a schedule. Short-lived secrets (JWT with 15-minute expiry, short-TTL database credentials) limit blast radius from a leak.</li>
+          <li><strong>Different secrets per environment.</strong> Never use the same database password in development and production. A leaked dev secret shouldn't grant prod access.</li>
         </ul>
-      </div>
-    </div>
 
-    <!-- TRANSPORT & SECRETS -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-icon">🗝️</span>
-        <h2>Transport &amp; Secrets</h2>
-      </div>
-      <div class="section-body">
-        <ul class="checklist">
+        <h3>Encryption at Rest</h3>
+        <p>Data at rest should be encrypted. Database-level encryption (transparent data encryption — TDE) means the raw database files on disk are encrypted. This protects against physical disk theft and some cloud provider access scenarios but doesn't protect against a compromised database user — the DB itself decrypts transparently. Application-level encryption (encrypt specific fields in code before storing) protects against database compromises but means you can't query on encrypted fields. Use AES-256-GCM for symmetric encryption. Never roll your own crypto — use a well-audited library.</p>
 
-          <li class="check-item" data-id="tls-certs">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">TLS Certificates</div>
-              <div class="check-item-desc">
-                Certificate lifecycle: generate private key → create CSR (Certificate Signing Request) → CA signs it → install cert + intermediate chain.
-                <strong>Types:</strong> DV (Domain Validation — automated, Let's Encrypt), OV (Organization Validation), EV (Extended Validation — company name in cert, expensive).
-                <strong>Let's Encrypt:</strong> free DV certs, 90-day expiry, ACME protocol for automation (<code>certbot</code>).
-                <strong>HSTS:</strong> <code>Strict-Transport-Security: max-age=31536000; includeSubDomains; preload</code> — browser refuses HTTP connections. Preload list is baked into browsers.
-                <strong>Certificate Transparency (CT):</strong> all publicly trusted certs must be logged — detects misissuance.
-              </div>
-            </div>
-          </li>
+        <h3>HTTPS &amp; Certificate Management</h3>
+        <p>Always HTTPS. There is no meaningful case for unencrypted HTTP in 2024. Certificate management has become largely automated via Let's Encrypt (free, automated, 90-day certs) and ACME protocol support in Nginx, Caddy, and most cloud load balancers. Caddy in particular handles cert provisioning and renewal with zero configuration — a strong default choice.</p>
+        <p><strong>Certificate Transparency (CT)</strong>: all publicly-trusted CAs must log all issued certs to public CT logs. Your browser checks that the cert was logged. This makes it possible to detect mis-issued certs (an attacker getting a cert for your domain) quickly. Tools like certspotter.com can alert you to unexpected certs issued for your domains.</p>
 
-          <li class="check-item" data-id="secrets-management">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Secrets Management</div>
-              <div class="check-item-desc">
-                <strong>Never hardcode secrets</strong> in source code — git history is permanent. <code>git log -S "password"</code> will find it.
-                <strong>Environment variables:</strong> baseline protection. Still end up in process dumps, logs, error reports if not careful.
-                <strong>Secrets managers:</strong> AWS Secrets Manager, HashiCorp Vault, GCP Secret Manager, Azure Key Vault — provide rotation, fine-grained access policies, audit logs, dynamic secrets (DB credentials generated per-request).
-                <strong>Pre-commit hooks:</strong> <code>git-secrets</code>, <code>detect-secrets</code>, <code>truffleHog</code> — scan for secrets before commit.
-                <strong>Rotation:</strong> rotate secrets regularly and immediately on suspected compromise. Design apps to support zero-downtime rotation (dual-read period).
-              </div>
-            </div>
-          </li>
-
+        <h3>Security Headers</h3>
+        <p>A set of HTTP response headers that tell browsers how to handle your content securely. Set all of these:</p>
+        <ul>
+          <li><code>Strict-Transport-Security: max-age=31536000; includeSubDomains</code> — force HTTPS for 1 year</li>
+          <li><code>X-Content-Type-Options: nosniff</code> — prevent MIME type sniffing</li>
+          <li><code>X-Frame-Options: DENY</code> — prevent clickjacking (or use CSP's <code>frame-ancestors</code>)</li>
+          <li><code>Content-Security-Policy: default-src 'self'</code> — restrict script/style sources</li>
+          <li><code>Referrer-Policy: strict-origin-when-cross-origin</code> — control what's sent in Referer header</li>
+          <li><code>Permissions-Policy: camera=(), microphone=()</code> — disable browser features you don't use</li>
         </ul>
+        <p>Test your headers at securityheaders.com. Automated via your reverse proxy (Nginx/Caddy configuration) rather than application code — so they apply to all responses.</p>
+
+        <h3>Rate Limiting &amp; DDoS Mitigation</h3>
+        <p>Rate limiting protects against brute-force attacks, credential stuffing, and resource abuse. Implement at: the authentication endpoint (10 attempts/minute per IP + account lockout after 10 failures), the API level (100 requests/minute per token), and for resource-intensive operations (export endpoints, report generation). Implement in your API gateway or reverse proxy rather than application code, so it applies before your service processes anything.</p>
+        <p>For DDoS: Cloudflare and AWS Shield handle volumetric attacks at the network layer. Your job is to ensure your application doesn't have expensive-to-compute endpoints exposed without authentication (avoid unauthenticated endpoints that trigger large DB scans).</p>
+
+        <figure class="diagram">
+          <img src="../images/security/api-security.png" alt="API security layers: authentication, authorization, rate limiting, input validation, encryption">
+          <figcaption>Defense in depth for APIs. Security is not one control but a stack: TLS for transport, authentication (who are you?), authorization (what can you do?), rate limiting (how much?), input validation (is the data safe?), and secrets management (credentials never in code).</figcaption>
+        </figure>
       </div>
     </div>
 
-    <!-- Q&A -->
-    <div class="section">
+    <!-- GO DEEPER -->
+    <div class="section" style="border-style:dashed;">
       <div class="section-header">
-        <span class="section-icon">🧠</span>
-        <h2>Quick Review</h2>
-      </div>
-      <div class="section-body">
-
-        <details class="qa">
-          <summary>Why shouldn't you store sensitive data in a JWT payload?</summary>
-          <div class="qa-body">
-            <p>JWT payload is <strong>base64url encoded, not encrypted</strong>. Anyone who intercepts the token (or has access to the client) can decode it and read the payload. The signature only proves the payload hasn't been tampered with — it doesn't hide it.</p>
-            <p>If you need to include sensitive claims, use <strong>JWE (JSON Web Encryption)</strong> instead of JWS (JSON Web Signature). Or keep sensitive data server-side in the session store and put only a session ID in the cookie.</p>
-          </div>
-        </details>
-
-        <details class="qa">
-          <summary>What is an IDOR vulnerability and how do you prevent it?</summary>
-          <div class="qa-body">
-            <p><strong>Insecure Direct Object Reference (IDOR):</strong> an API exposes an internal identifier (DB ID) and doesn't verify that the requesting user owns that resource.</p>
-            <p>Example: <code>GET /api/invoices/1234</code> — if any authenticated user can fetch any invoice just by changing the ID, that's IDOR.</p>
-            <p><strong>Prevention:</strong> always check ownership/authorization server-side: <code>SELECT * FROM invoices WHERE id = $id AND user_id = $current_user</code>. Consider using UUIDs instead of sequential IDs (harder to enumerate, but not a security measure on its own). Add authorization middleware that verifies resource ownership for every request.</p>
-          </div>
-        </details>
-
-        <details class="qa">
-          <summary>What's the difference between hashing a password with MD5/SHA1 vs bcrypt?</summary>
-          <div class="qa-body">
-            <p>MD5/SHA1 are <strong>cryptographic hash functions designed to be fast</strong> — an attacker can compute billions of hashes per second on GPU hardware, making brute force feasible.</p>
-            <p><strong>bcrypt/argon2/scrypt</strong> are <em>key derivation functions</em> designed to be <strong>deliberately slow and memory-hard</strong>. bcrypt with cost factor 12 takes ~250ms per hash on modern hardware — 4M× slower than MD5. For a typical user login this is imperceptible; for an attacker brute-forcing a stolen hash database, it's the difference between cracking in hours vs centuries.</p>
-            <p>Also: always add a unique random <strong>salt</strong> per password (bcrypt does this automatically) to prevent rainbow table attacks and ensure identical passwords hash differently.</p>
-          </div>
-        </details>
-
-      </div>
-    </div>
-
-    <!-- RESOURCES -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-icon">📚</span>
-        <h2>Go Deeper</h2>
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
       </div>
       <div class="section-body">
         <div class="resource-list">
-
-          <div class="resource">
-            <span class="resource-type blog">blog</span>
-            <div class="resource-content">
-              <div class="resource-title">OWASP Top 10</div>
-              <div class="resource-author">owasp.org/Top10</div>
-              <div class="resource-desc">The authoritative list with detailed explanations, attack examples, and prevention guidance for each category. Read all 10 entries with their "How to Prevent" sections.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type blog">blog</span>
-            <div class="resource-content">
-              <div class="resource-title">OAuth 2.0 Security Best Current Practice</div>
-              <div class="resource-author">IETF RFC 9700 / oauth.net</div>
-              <div class="resource-desc">The current best practice document for OAuth 2.0 security. Dense but important if you're implementing OAuth flows. The oauth.net site has readable summaries of each RFC.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type blog">blog</span>
-            <div class="resource-content">
-              <div class="resource-title">JWT.io</div>
-              <div class="resource-author">Auth0</div>
-              <div class="resource-desc">The best JWT debugger and also has a clear explanation of JWT structure. Use the debugger whenever you're working with a JWT and want to inspect the claims.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type book">book</span>
-            <div class="resource-content">
-              <div class="resource-title">The Web Application Hacker's Handbook</div>
-              <div class="resource-author">Stuttard &amp; Pinto — Wiley</div>
-              <div class="resource-desc">Classic, comprehensive guide to web application vulnerabilities. Older now but the attack classes (XSS, CSRF, injection, authentication flaws) are timeless. Good for understanding how attackers actually think.</div>
-            </div>
-          </div>
-
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">OWASP Top Ten</div><div class="resource-author">owasp.org/www-project-top-ten</div><div class="resource-desc">The authoritative list of critical web security risks with detailed descriptions, examples, and mitigations. Read the full top 10 once — it takes an hour and is directly applicable to production code.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">JWT.io — Debugger &amp; Introduction</div><div class="resource-author">jwt.io</div><div class="resource-desc">Paste any JWT to decode and inspect it. The introduction explains the structure, signing algorithms, and common pitfalls (algorithm confusion attacks, none algorithm). Must-read before implementing JWT-based auth.</div></div></div>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">OAuth 2.0 — RFC 6749 &amp; OAuth Security BCP</div><div class="resource-author">oauth.net/2 &amp; datatracker.ietf.org/doc/html/draft-ietf-oauth-security-topics</div><div class="resource-desc">Start with oauth.net/2 for the overview, then the Security Best Current Practice document for what not to do. The BCP covers deprecated flows, PKCE requirements, and current recommendations.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">PortSwigger Web Security Academy</div><div class="resource-author">portswigger.net/web-security</div><div class="resource-desc">Free, hands-on labs for every major vulnerability class. The SQL injection, XSS, CSRF, and authentication labs teach by doing, with real attack/defense scenarios. Best practical security training available online.</div></div></div>
         </div>
       </div>
     </div>
@@ -302,18 +202,16 @@
 
 <footer class="site-footer">
   <div class="module-nav">
-    <a href="http-networking.html">← HTTP &amp; APIs</a>
-    <a href="../index.html" class="center">All modules</a>
+    <a href="api-design.html">← API Design</a>
+    <a href="../backend.html" class="center">All modules</a>
     <a href="infrastructure.html">Infrastructure →</a>
   </div>
 </footer>
 
 <script src="../js/app.js"></script>
 <script>
-  initChecklist('security');
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('../sw.js').catch(() => {});
-  }
+  initSections('security');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
 </script>
 </body>
 </html>

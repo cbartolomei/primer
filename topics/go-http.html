@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Go HTTP Servers — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="inner">
+    <a href="../go.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 6 sections understood</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>🌐 HTTP Servers</h1>
+    <p class="subtitle">Building production HTTP services with Go's standard library — routing, middleware, templating, SQL databases, sessions, and TLS. No framework required.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <!-- ─── 1. net/http server ─────────────────────────────────── -->
+    <div class="section" data-id="net-http-server">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔌</span><h2>net/http — The Server Model</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go's <code>net/http</code> package is a production-grade HTTP server with no external dependencies. Understanding its two core abstractions — <code>Handler</code> and <code>ServeMux</code> — is all you need to build real services.</p>
+
+        <h3>The Handler Interface</h3>
+        <p>Everything in <code>net/http</code> implements one interface:</p>
+        <pre><code>type Handler interface {
+    ServeHTTP(ResponseWriter, *Request)
+}
+
+// ResponseWriter lets you write status + headers + body
+// *Request carries the incoming data: method, URL, headers, body</code></pre>
+        <p><code>http.HandlerFunc</code> is a function adapter — it lets any function with the right signature be used as a handler without creating a named type:</p>
+        <pre><code>// HandlerFunc is just a type alias with ServeHTTP defined on it
+func greet(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintln(w, "hello")
+}
+
+mux.Handle("/greet", http.HandlerFunc(greet)) // explicit conversion
+mux.HandleFunc("/greet", greet)               // HandleFunc does the conversion for you</code></pre>
+
+        <h3>ServeMux and Go 1.22 Routing</h3>
+        <p>Before Go 1.22, <code>ServeMux</code> only matched path prefixes. Go 1.22 added method-based routing and wildcard path segments — closing the gap with third-party routers for most use cases:</p>
+        <pre><code>mux := http.NewServeMux()
+
+// Go 1.22+ patterns: "METHOD /path/{wildcard}"
+mux.HandleFunc("GET /snippets/{id}", snippetView)
+mux.HandleFunc("POST /snippets", snippetCreate)
+mux.HandleFunc("DELETE /snippets/{id}", snippetDelete)
+
+// Trailing slash = subtree match (any path under /static/)
+mux.Handle("GET /static/", http.FileServer(http.Dir("./ui/static")))
+
+// Root pattern matches everything not matched above
+mux.HandleFunc("/", notFound)
+
+// Extract wildcard value from the path
+func snippetView(w http.ResponseWriter, r *http.Request) {
+    id := r.PathValue("id") // "id" matches {id} in the pattern
+    // ...
+}</code></pre>
+        <div class="note note-info">
+          Patterns without a method prefix match any method — useful for a catch-all. Patterns with a method prefix take priority over method-less patterns at the same path.
+        </div>
+
+        <h3>Configuring the Server</h3>
+        <p>Never use <code>http.ListenAndServe</code> in production — it uses the default mux and has no timeouts. Always create an explicit <code>http.Server</code>:</p>
+        <pre><code>srv := &http.Server{
+    Addr:    ":4000",
+    Handler: mux,
+
+    // Timeouts protect against slow clients and resource exhaustion.
+    // Zero means no timeout — a single slow client can block a goroutine forever.
+    ReadTimeout:  5 * time.Second,   // time to read the full request, including body
+    WriteTimeout: 10 * time.Second,  // time to write the full response
+    IdleTimeout:  60 * time.Second,  // keep-alive connections sit idle for at most this long
+
+    // Structured logger (Go 1.21+)
+    ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
+}
+
+log.Fatal(srv.ListenAndServe())</code></pre>
+
+        <h3>Project Structure</h3>
+        <p>The layout that Let's Go and most production Go web services converge on:</p>
+        <pre><code>myapp/
+├── cmd/
+│   └── web/
+│       ├── main.go        // wires everything together: DB, handlers, server
+│       ├── handlers.go    // HTTP handler functions
+│       ├── middleware.go  // middleware functions
+│       └── routes.go      // mux setup
+├── internal/
+│   └── models/
+│       ├── snippets.go    // database model + queries
+│       └── users.go
+├── ui/
+│   ├── static/            // CSS, JS, images
+│   └── html/
+│       └── base.html      // templates
+├── go.mod
+└── go.sum</code></pre>
+        <p>The <code>internal/</code> directory is enforced by the Go toolchain — packages inside it can only be imported by code in the parent tree. Use it for database models and business logic you don't want to expose as a public API.</p>
+
+        <h3>Dependency Injection via Application Struct</h3>
+        <p>Handlers need shared dependencies: a logger, a DB pool, a session manager. The idiomatic Go approach is an application struct — not global variables, not a framework container:</p>
+        <pre><code>// main.go
+type application struct {
+    logger   *slog.Logger
+    snippets *models.SnippetModel
+    sessions *scs.SessionManager
+}
+
+// Handlers become methods on *application, giving them access to all deps
+func (app *application) snippetView(w http.ResponseWriter, r *http.Request) {
+    id, err := strconv.Atoi(r.PathValue("id"))
+    // ... uses app.snippets, app.logger
+}
+
+// Wire it in main()
+app := &application{
+    logger:   slog.New(slog.NewTextHandler(os.Stdout, nil)),
+    snippets: &models.SnippetModel{DB: db},
+}
+
+mux.HandleFunc("GET /snippets/{id}", app.snippetView)</code></pre>
+        <p>This pattern makes testing easy: create an <code>application</code> with fake dependencies (no real DB, no real logger) and call handler methods directly.</p>
+      </div>
+    </div>
+
+    <!-- ─── 2. Middleware ─────────────────────────────────────── -->
+    <div class="section" data-id="middleware">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔗</span><h2>Middleware</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Middleware in Go is a function that wraps a <code>Handler</code> and returns a new <code>Handler</code>. This simple pattern composes cleanly into chains without a framework.</p>
+
+        <h3>The Middleware Pattern</h3>
+        <pre><code>// Middleware signature: takes a Handler, returns a Handler
+func myMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // Code here runs BEFORE the handler
+        next.ServeHTTP(w, r)
+        // Code here runs AFTER the handler
+    })
+}
+
+// Apply: wrap the mux with middleware
+http.ListenAndServe(":4000", myMiddleware(mux))</code></pre>
+
+        <h3>Logging Middleware</h3>
+        <pre><code>func (app *application) logRequest(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        start := time.Now()
+        next.ServeHTTP(w, r)
+        app.logger.Info("request",
+            "method", r.Method,
+            "uri",    r.URL.RequestURI(),
+            "remote", r.RemoteAddr,
+            "dur",    time.Since(start),
+        )
+    })
+}</code></pre>
+        <div class="note note-info">
+          This naive version can't log the status code because <code>ResponseWriter</code> doesn't expose it after the fact. In production, wrap <code>ResponseWriter</code> with a custom type that captures the code (see below).
+        </div>
+
+        <h3>Panic Recovery</h3>
+        <p>An unrecovered panic in a goroutine crashes only that goroutine. In a Go HTTP server, each request runs in its own goroutine — so an unrecovered panic in a handler closes the connection without sending an HTTP error, and logs "recovered from panic" at most. Catch it explicitly:</p>
+        <pre><code>func (app *application) recoverPanic(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        defer func() {
+            if err := recover(); err != nil {
+                // Connection: close tells the client this connection won't be reused
+                w.Header().Set("Connection", "close")
+                app.serverError(w, r, fmt.Errorf("%s", err))
+            }
+        }()
+        next.ServeHTTP(w, r)
+    })
+}</code></pre>
+
+        <h3>Security Headers</h3>
+        <pre><code>func secureHeaders(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Security-Policy",
+            "default-src 'self'; style-src 'self' fonts.googleapis.com")
+        w.Header().Set("Referrer-Policy", "origin-when-cross-origin")
+        w.Header().Set("X-Content-Type-Options", "nosniff")
+        w.Header().Set("X-Frame-Options", "deny")
+        w.Header().Set("X-XSS-Protection", "0") // modern browsers use CSP instead
+        next.ServeHTTP(w, r)
+    })
+}</code></pre>
+
+        <h3>Capturing Status Codes with a ResponseWriter Wrapper</h3>
+        <pre><code>type responseWriter struct {
+    http.ResponseWriter
+    status      int
+    wroteHeader bool
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+    if !rw.wroteHeader {
+        rw.status = code
+        rw.wroteHeader = true
+        rw.ResponseWriter.WriteHeader(code)
+    }
+}
+
+func (app *application) logRequest(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        start := time.Now()
+        wrapped := &responseWriter{ResponseWriter: w, status: http.StatusOK}
+        next.ServeHTTP(wrapped, r)
+        app.logger.Info("request",
+            "method", r.Method,
+            "uri",    r.URL.RequestURI(),
+            "status", wrapped.status,
+            "dur",    time.Since(start),
+        )
+    })
+}</code></pre>
+
+        <h3>Composing Middleware Chains</h3>
+        <pre><code>// routes.go — wire everything together
+func (app *application) routes() http.Handler {
+    mux := http.NewServeMux()
+
+    // Static files — no auth, no session
+    mux.Handle("GET /static/", http.FileServer(http.Dir("./ui/static")))
+
+    // All other routes get the full middleware stack
+    mux.HandleFunc("GET /", app.home)
+    mux.HandleFunc("GET /snippets/{id}", app.snippetView)
+    mux.HandleFunc("POST /snippets", app.requireAuth(app.snippetCreate))
+
+    // Apply global middleware: outermost = first to run
+    return app.recoverPanic(
+        app.logRequest(
+            secureHeaders(mux),
+        ),
+    )
+}</code></pre>
+        <div class="note note-info">
+          For longer chains, many teams extract a helper like <code>alice</code> or write their own small <code>Chain(middlewares ...func(http.Handler) http.Handler)</code> function. The pattern is always the same.
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── 3. HTML Templating ────────────────────────────────── -->
+    <div class="section" data-id="html-templating">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📄</span><h2>HTML Templating</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go's <code>html/template</code> package auto-escapes all output, making XSS difficult by design. It's more restrictive than <code>text/template</code> but that restriction is the point.</p>
+
+        <h3>Template Inheritance with Define/Block</h3>
+        <pre><code>{{/* ui/html/base.html */}}
+{{define "base"}}
+<!DOCTYPE html>
+<html>
+<head>
+  <title>{{template "title" .}} - Snippetbox</title>
+  <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+  <nav>...</nav>
+  <main>
+    {{template "main" .}}
+  </main>
+</body>
+</html>
+{{end}}
+
+{{/* ui/html/pages/home.html */}}
+{{define "title"}}Home{{end}}
+
+{{define "main"}}
+<h2>Latest Snippets</h2>
+{{range .Snippets}}
+  <article>
+    <h3>{{.Title}}</h3>
+    <p>{{.Content}}</p>
+    <time>{{.Expires.Format "02 Jan 2006"}}</time>
+  </article>
+{{else}}
+  <p>No snippets yet.</p>
+{{end}}
+{{end}}</code></pre>
+
+        <h3>Template Caching</h3>
+        <p>Parsing templates on every request is expensive. Parse once at startup, cache in memory:</p>
+        <pre><code>// Build a map: page name → parsed template set
+func newTemplateCache() (map[string]*template.Template, error) {
+    cache := map[string]*template.Template{}
+
+    // Glob all page templates
+    pages, err := filepath.Glob("./ui/html/pages/*.html")
+    if err != nil {
+        return nil, err
+    }
+
+    for _, page := range pages {
+        name := filepath.Base(page)
+
+        // Parse base first, then partials, then the page itself
+        ts, err := template.New(name).Funcs(functions).ParseFiles(
+            "./ui/html/base.html",
+            "./ui/html/partials/*.html",
+            page,
+        )
+        if err != nil {
+            return nil, err
+        }
+
+        cache[name] = ts
+    }
+    return cache, nil
+}
+
+// In main(), store on the application struct
+app.templateCache, err = newTemplateCache()</code></pre>
+
+        <h3>Rendering Templates Safely</h3>
+        <p>Write to a buffer first — if template execution fails mid-render, you've already written the 200 header and you can't take it back. Buffer it so you can return a proper 500 instead:</p>
+        <pre><code>func (app *application) render(w http.ResponseWriter, r *http.Request,
+    status int, page string, data templateData) {
+
+    ts, ok := app.templateCache[page]
+    if !ok {
+        app.serverError(w, r, fmt.Errorf("template %q not found", page))
+        return
+    }
+
+    // Render into a buffer first — catches runtime errors before we write status
+    buf := new(bytes.Buffer)
+    err := ts.ExecuteTemplate(buf, "base", data)
+    if err != nil {
+        app.serverError(w, r, err)
+        return
+    }
+
+    w.WriteHeader(status)
+    buf.WriteTo(w) // only write to w if no error
+}</code></pre>
+
+        <h3>Custom Template Functions</h3>
+        <pre><code>// Define a FuncMap — add before parsing
+var functions = template.FuncMap{
+    "humanDate": humanDate,
+    "add":       func(a, b int) int { return a + b },
+}
+
+func humanDate(t time.Time) string {
+    if t.IsZero() {
+        return ""
+    }
+    return t.UTC().Format("02 Jan 2006 at 15:04")
+}
+
+// Register functions when creating the template set
+ts, err := template.New(name).Funcs(functions).ParseFiles(...)
+
+// Use in template
+{{humanDate .Created}}</code></pre>
+
+        <h3>Template Data</h3>
+        <p>Pass a single struct to templates so you can add fields without changing all call sites:</p>
+        <pre><code>type templateData struct {
+    CurrentYear int
+    Snippet     *models.Snippet
+    Snippets    []*models.Snippet
+    Form        snippetCreateForm // for re-displaying form with errors
+    Flash       string            // one-time success message from session
+    IsAuthenticated bool
+}
+
+// Populate common fields automatically
+func (app *application) newTemplateData(r *http.Request) templateData {
+    return templateData{
+        CurrentYear:     time.Now().Year(),
+        Flash:           app.sessionManager.PopString(r.Context(), "flash"),
+        IsAuthenticated: app.isAuthenticated(r),
+    }
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- ─── 4. database/sql ───────────────────────────────────── -->
+    <div class="section" data-id="database-sql">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🗄️</span><h2>database/sql</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go's <code>database/sql</code> package provides a unified interface to any SQL database. You bring a driver (e.g., <code>go-sql-driver/mysql</code>, <code>lib/pq</code>, <code>jackc/pgx</code>) and the stdlib handles connection pooling, prepared statements, and transactions.</p>
+
+        <h3>Opening and Configuring the Pool</h3>
+        <pre><code>import (
+    "database/sql"
+    _ "github.com/go-sql-driver/mysql" // side-effect import: registers the driver
+)
+
+func openDB(dsn string) (*sql.DB, error) {
+    db, err := sql.Open("mysql", dsn)
+    if err != nil {
+        return nil, err
+    }
+
+    // sql.Open doesn't actually connect — ping to verify connectivity
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    if err = db.PingContext(ctx); err != nil {
+        db.Close()
+        return nil, err
+    }
+
+    // Connection pool tuning
+    db.SetMaxOpenConns(25)        // max connections to the DB
+    db.SetMaxIdleConns(25)        // max idle connections kept open
+    db.SetConnMaxLifetime(5 * time.Minute) // recycle connections
+
+    return db, nil
+}</code></pre>
+        <div class="note note-warning">
+          <code>sql.DB</code> is a connection pool, not a single connection. It's safe to use concurrently. Create one at startup, share it — don't create a new one per request.
+        </div>
+
+        <h3>Query Patterns</h3>
+        <p>Three methods cover most query use cases:</p>
+        <pre><code>// QueryRowContext — exactly one row expected
+func (m *SnippetModel) Get(id int) (*Snippet, error) {
+    stmt := `SELECT id, title, content, created, expires
+             FROM snippets WHERE id = ? AND expires > UTC_TIMESTAMP()`
+
+    s := &Snippet{}
+    err := m.DB.QueryRowContext(context.Background(), stmt, id).Scan(
+        &s.ID, &s.Title, &s.Content, &s.Created, &s.Expires,
+    )
+    if err != nil {
+        if errors.Is(err, sql.ErrNoRows) {
+            return nil, ErrNoRecord // sentinel error, not sql.ErrNoRows
+        }
+        return nil, err
+    }
+    return s, nil
+}
+
+// QueryContext — multiple rows
+func (m *SnippetModel) Latest() ([]*Snippet, error) {
+    stmt := `SELECT id, title, content, created, expires
+             FROM snippets ORDER BY created DESC LIMIT 10`
+
+    rows, err := m.DB.QueryContext(context.Background(), stmt)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close() // ALWAYS defer Close — releases connection back to pool
+
+    var snippets []*Snippet
+    for rows.Next() {
+        s := &Snippet{}
+        err := rows.Scan(&s.ID, &s.Title, &s.Content, &s.Created, &s.Expires)
+        if err != nil {
+            return nil, err
+        }
+        snippets = append(snippets, s)
+    }
+    // rows.Err() catches errors that happened during iteration
+    if err = rows.Err(); err != nil {
+        return nil, err
+    }
+    return snippets, nil
+}
+
+// ExecContext — INSERT, UPDATE, DELETE (no rows returned)
+func (m *SnippetModel) Insert(title, content string, expires int) (int, error) {
+    stmt := `INSERT INTO snippets (title, content, created, expires)
+             VALUES(?, ?, UTC_TIMESTAMP(), DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? DAY))`
+
+    result, err := m.DB.ExecContext(context.Background(), stmt, title, content, expires)
+    if err != nil {
+        return 0, err
+    }
+    id, err := result.LastInsertId()
+    return int(id), err
+}</code></pre>
+
+        <h3>Transactions</h3>
+        <pre><code>func (m *Model) transfer(fromID, toID, amount int) error {
+    tx, err := m.DB.BeginTx(ctx, nil)
+    if err != nil {
+        return err
+    }
+    // If anything goes wrong, rollback. Rollback after Commit is a no-op.
+    defer tx.Rollback()
+
+    _, err = tx.ExecContext(ctx, "UPDATE accounts SET balance = balance - ? WHERE id = ?", amount, fromID)
+    if err != nil {
+        return err
+    }
+    _, err = tx.ExecContext(ctx, "UPDATE accounts SET balance = balance + ? WHERE id = ?", amount, toID)
+    if err != nil {
+        return err
+    }
+
+    return tx.Commit() // only commits if we reach this line
+}</code></pre>
+
+        <h3>Null Values</h3>
+        <pre><code>// Nullable columns must use sql.Null* types
+type Profile struct {
+    UserID int
+    Bio    sql.NullString // Valid=false when NULL
+    Age    sql.NullInt64
+}
+
+// Check before using
+if profile.Bio.Valid {
+    fmt.Println(profile.Bio.String)
+}
+
+// Or use a pointer — nil for NULL
+type Profile struct {
+    Bio *string // nil when NULL
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- ─── 5. Forms & Sessions ───────────────────────────────── -->
+    <div class="section" data-id="forms-sessions">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📝</span><h2>Forms, Validation &amp; Sessions</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Processing user input — parsing forms, validating data, and persisting state between requests — is the bread-and-butter of web applications. Go handles all of it without a framework.</p>
+
+        <h3>Form Parsing</h3>
+        <pre><code>func (app *application) snippetCreate(w http.ResponseWriter, r *http.Request) {
+    // ParseForm populates r.Form and r.PostForm
+    err := r.ParseForm()
+    if err != nil {
+        app.clientError(w, http.StatusBadRequest)
+        return
+    }
+
+    // r.PostForm.Get returns "" for missing keys (safe, no panic)
+    title   := r.PostForm.Get("title")
+    content := r.PostForm.Get("content")
+    expires, err := strconv.Atoi(r.PostForm.Get("expires"))
+    if err != nil {
+        app.clientError(w, http.StatusBadRequest)
+        return
+    }
+    // ...
+}</code></pre>
+
+        <h3>Validation Pattern</h3>
+        <p>Embed a <code>Validator</code> in your form struct to collect field errors without a library:</p>
+        <pre><code>type Validator struct {
+    FieldErrors    map[string]string // field-level errors
+    NonFieldErrors []string          // form-level errors
+}
+
+func (v *Validator) Valid() bool {
+    return len(v.FieldErrors) == 0 && len(v.NonFieldErrors) == 0
+}
+
+func (v *Validator) AddFieldError(key, message string) {
+    if v.FieldErrors == nil {
+        v.FieldErrors = make(map[string]string)
+    }
+    if _, exists := v.FieldErrors[key]; !exists {
+        v.FieldErrors[key] = message
+    }
+}
+
+func (v *Validator) CheckField(ok bool, key, message string) {
+    if !ok {
+        v.AddFieldError(key, message)
+    }
+}
+
+// Form struct embeds Validator
+type snippetCreateForm struct {
+    Title   string
+    Content string
+    Expires int
+    Validator
+}
+
+// In the handler — validate and re-render on failure
+form := snippetCreateForm{
+    Title:   r.PostForm.Get("title"),
+    Content: r.PostForm.Get("content"),
+    Expires: expires,
+}
+form.CheckField(form.Title != "", "title", "This field cannot be blank")
+form.CheckField(len(form.Title) <= 100, "title", "Must be 100 characters or fewer")
+
+if !form.Valid() {
+    data := app.newTemplateData(r)
+    data.Form = form
+    app.render(w, r, http.StatusUnprocessableEntity, "create.html", data)
+    return
+}</code></pre>
+        <p>In the template, display per-field errors inline: <code>{{if .Form.FieldErrors.title}}{{.Form.FieldErrors.title}}{{end}}</code></p>
+
+        <h3>Session Management</h3>
+        <p>Sessions store user state server-side across requests. The popular <code>alexedwards/scs</code> package wraps cookie-based sessions with multiple backend options:</p>
+        <pre><code>import "github.com/alexedwards/scs/v2"
+
+// In main() — configure once
+sessionManager := scs.New()
+sessionManager.Store = mysqlstore.New(db)  // or: memstore, redisstore
+sessionManager.Lifetime = 12 * time.Hour
+sessionManager.Cookie.Secure = true       // HTTPS only
+
+app := &application{
+    sessionManager: sessionManager,
+}
+
+// All routes must be wrapped with the session middleware
+return sessionManager.LoadAndSave(app.routes())
+
+// In handlers — get, set, pop values by string key
+// Pop atomically reads and deletes — for one-time flash messages
+flash := app.sessionManager.PopString(r.Context(), "flash")
+
+app.sessionManager.Put(r.Context(), "flash", "Snippet created!")
+app.sessionManager.Put(r.Context(), "authenticatedUserID", id)
+
+userID := app.sessionManager.GetInt(r.Context(), "authenticatedUserID")</code></pre>
+        <div class="note note-warning">
+          Always regenerate the session token after login (<code>sessionManager.RenewToken</code>) to prevent session fixation attacks.
+        </div>
+
+        <h3>CSRF Protection</h3>
+        <p>Any state-changing form needs a CSRF token. Use <code>gorilla/csrf</code> or the simpler <code>justinas/nosurf</code>:</p>
+        <pre><code>import "github.com/justinas/nosurf"
+
+// Wrap the router with the CSRF middleware
+func noSurf(next http.Handler) http.Handler {
+    csrfHandler := nosurf.New(next)
+    csrfHandler.SetBaseCookie(http.Cookie{
+        HttpOnly: true,
+        Path:     "/",
+        Secure:   true, // HTTPS only
+    })
+    return csrfHandler
+}
+
+// Pass the token to every template
+func (app *application) newTemplateData(r *http.Request) templateData {
+    return templateData{
+        CSRFToken: nosurf.Token(r),
+        // ...
+    }
+}
+
+// In the form template
+&lt;input type="hidden" name="csrf_token" value="{{.CSRFToken}}"&gt;</code></pre>
+      </div>
+    </div>
+
+    <!-- ─── 6. TLS & Embed ───────────────────────────────────── -->
+    <div class="section" data-id="tls-embed">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔐</span><h2>TLS, HTTPS &amp; File Embedding</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go makes HTTPS trivially easy. The standard library includes a full TLS stack. In production you'll usually terminate TLS at a reverse proxy (Caddy, Nginx), but knowing how to do it in Go matters for internal services.</p>
+
+        <h3>HTTPS with ListenAndServeTLS</h3>
+        <pre><code>srv := &http.Server{
+    Addr:    ":4000",
+    Handler: app.routes(),
+    // TLS config — restrict to modern cipher suites
+    TLSConfig: &tls.Config{
+        CurvePreferences: []tls.CurveID{tls.X25519, tls.CurveP256},
+        MinVersion:       tls.VersionTLS12,
+    },
+    // With TLS, timeouts are especially important — slow TLS handshakes can pile up
+    ReadTimeout:  5 * time.Second,
+    WriteTimeout: 10 * time.Second,
+    IdleTimeout:  60 * time.Second,
+}
+
+// cert.pem and key.pem — in dev, generated with:
+// go run $(go env GOROOT)/src/crypto/tls/generate_cert.go --rsa-bits=2048 --host=localhost
+log.Fatal(srv.ListenAndServeTLS("./tls/cert.pem", "./tls/key.pem"))</code></pre>
+
+        <h3>go:embed — Embedding Files at Compile Time</h3>
+        <p>The <code>//go:embed</code> directive (Go 1.16+) bundles files into the binary at compile time. The result is a single self-contained binary with no external file dependencies — essential for containers and easy deployment:</p>
+        <pre><code>import "embed"
+
+// Embed a single file
+//go:embed ui/html/base.html
+var baseTemplate string
+
+// Embed a directory as an fs.FS
+//go:embed ui/html
+var htmlFiles embed.FS
+
+//go:embed ui/static
+var staticFiles embed.FS
+
+// Serve static files from embedded FS
+staticFS, _ := fs.Sub(staticFiles, "ui/static")
+mux.Handle("GET /static/", http.FileServer(http.FS(staticFS)))
+
+// Parse templates from embedded FS
+func newTemplateCache() (map[string]*template.Template, error) {
+    cache := map[string]*template.Template{}
+
+    pages, err := fs.Glob(htmlFiles, "ui/html/pages/*.html")
+    if err != nil {
+        return nil, err
+    }
+
+    for _, page := range pages {
+        name := filepath.Base(page)
+        // Must list patterns in the order: base, partials, page
+        patterns := []string{
+            "ui/html/base.html",
+            "ui/html/partials/*.html",
+            page,
+        }
+        ts, err := template.New(name).Funcs(functions).ParseFS(htmlFiles, patterns...)
+        if err != nil {
+            return nil, err
+        }
+        cache[name] = ts
+    }
+    return cache, nil
+}</code></pre>
+        <div class="note note-info">
+          The <code>//go:embed</code> directive must appear immediately before the variable declaration with no blank line. The path is relative to the source file's directory. Directories are embedded recursively; files beginning with <code>.</code> or <code>_</code> are excluded unless you use <code>all:</code> prefix.
+        </div>
+
+        <h3>Authentication Flow</h3>
+        <p>Cookie-based auth pattern — stores only the user ID in the session, not credentials:</p>
+        <pre><code>// Signup — hash the password, never store plaintext
+func (app *application) userSignup(w http.ResponseWriter, r *http.Request) {
+    // ... parse and validate form ...
+
+    hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+    if err != nil {
+        app.serverError(w, r, err)
+        return
+    }
+    err = app.users.Insert(name, email, string(hashedPassword))
+    // handle duplicate email (check for specific DB error)...
+}
+
+// Login — verify and put userID in session
+func (app *application) userLogin(w http.ResponseWriter, r *http.Request) {
+    id, err := app.users.Authenticate(email, password)
+    if err != nil {
+        if errors.Is(err, models.ErrInvalidCredentials) {
+            form.AddNonFieldError("Email or password is incorrect")
+            // re-render form
+            return
+        }
+        app.serverError(w, r, err)
+        return
+    }
+
+    // Renew session token on privilege level change (session fixation defense)
+    err = app.sessionManager.RenewToken(r.Context())
+    if err != nil {
+        app.serverError(w, r, err)
+        return
+    }
+
+    app.sessionManager.Put(r.Context(), "authenticatedUserID", id)
+    http.Redirect(w, r, "/snippets/create", http.StatusSeeOther)
+}
+
+// Model — authenticate returns the user ID
+func (m *UserModel) Authenticate(email, password string) (int, error) {
+    var id int
+    var hashedPassword []byte
+    err := m.DB.QueryRowContext(ctx,
+        "SELECT id, hashed_password FROM users WHERE email = ?", email,
+    ).Scan(&id, &hashedPassword)
+    if errors.Is(err, sql.ErrNoRows) {
+        return 0, ErrInvalidCredentials
+    }
+
+    err = bcrypt.CompareHashAndPassword(hashedPassword, []byte(password))
+    if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+        return 0, ErrInvalidCredentials
+    }
+
+    return id, nil
+}
+
+// requireAuth middleware — redirect unauthenticated users
+func (app *application) requireAuth(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if !app.isAuthenticated(r) {
+            http.Redirect(w, r, "/user/login", http.StatusSeeOther)
+            return
+        }
+        // Prevent authenticated pages from being stored in browser cache
+        w.Header().Add("Cache-Control", "no-store")
+        next.ServeHTTP(w, r)
+    })
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- Resources -->
+    <div class="section" style="border-style:dashed;">
+      <div class="section-header" style="border-bottom:none;">
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
+      </div>
+      <div class="section-body">
+        <div class="resource-list">
+          <div class="resource"><span class="resource-type book">book</span><div class="resource-content"><div class="resource-title">Let's Go</div><div class="resource-author">Alex Edwards — lets-go.alexedwards.net</div><div class="resource-desc">The definitive guide to building web applications with Go's standard library. Covers everything on this page in depth with a full running project. Essential reading for Go web development.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">The Go net/http package docs</div><div class="resource-author">pkg.go.dev/net/http</div><div class="resource-desc">The standard library docs are better than they look. The ServeMux docs in particular explain the Go 1.22 routing patterns with precision. Read them carefully before reaching for a router library.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Making and Using HTTP Middleware</div><div class="resource-author">Alex Edwards — alexedwards.net</div><div class="resource-desc">The clearest explanation of Go middleware patterns. Shows how the wrapping model works and how to build reusable chains. Essential reading before writing your first middleware.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Routing Enhancements in Go 1.22</div><div class="resource-author">Jonathan Amsterdam — go.dev/blog</div><div class="resource-desc">The official announcement post for the new ServeMux routing. Explains the design decisions, pattern matching rules, and precedence behavior. Answers every question you'll have about the new routing syntax.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Using PostgreSQL with Go</div><div class="resource-author">Alex Edwards — alexedwards.net</div><div class="resource-desc">database/sql with PostgreSQL specifically — covers the pgx driver, null handling, LISTEN/NOTIFY, and connection pool configuration. Much more practical than the official docs alone.</div></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <a href="go-idioms.html">← Go Idioms</a>
+    <a href="../go.html" class="center">All modules</a>
+    <a href="go-api.html">REST APIs →</a>
+  </div>
+</footer>
+
+<script src="../js/app.js"></script>
+<script src="../js/highlight.js"></script>
+<script>
+  initSections('go-http');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
+</script>
+</body>
+</html>

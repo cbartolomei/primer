@@ -10,16 +10,13 @@
   <link rel="stylesheet" href="../css/style.css">
 </head>
 <body>
-
 <header class="site-header">
   <div class="inner">
-    <a href="../index.html" class="header-back">← Back</a>
-    <span class="site-logo">pri<span>m</span>er</span>
+    <a href="../backend.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
     <div class="header-progress">
-      <div class="progress-bar-wrap">
-        <div class="progress-bar" id="topic-progress-bar" style="width:0%"></div>
-      </div>
-      <div class="progress-label" id="topic-progress-label">0 / 13 concepts covered</div>
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 5 sections understood</div>
     </div>
   </div>
 </header>
@@ -27,349 +24,333 @@
 <main class="container">
   <div class="page-hero">
     <h1>🗄️ Databases</h1>
-    <p class="subtitle">ACID, isolation levels, indexing, query optimization, PostgreSQL internals, and NoSQL tradeoffs.</p>
+    <p class="subtitle">Transactions and isolation levels bite distributed systems engineers constantly. The gaps are usually invisible until something goes wrong in prod.</p>
   </div>
 
   <div class="topic-content">
 
-    <!-- TRANSACTION FUNDAMENTALS -->
-    <div class="section">
+    <div class="section" data-id="transactions">
       <div class="section-header">
-        <span class="section-icon">⚛️</span>
-        <h2>Transaction Fundamentals</h2>
+        <div class="section-header-left"><span class="section-icon">⚛️</span><h2>Transactions &amp; ACID</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
-        <ul class="checklist">
+        <p>A transaction is a group of operations that execute as a single unit. Either all succeed and are committed, or all fail and are rolled back. This seemingly simple guarantee is what makes it safe to transfer money, place orders, or do anything that requires multiple writes to stay consistent.</p>
 
-          <li class="check-item" data-id="acid">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">ACID Properties</div>
-              <div class="check-item-desc">
-                <strong>Atomicity:</strong> all operations in a transaction succeed or all are rolled back — no partial writes.
-                <strong>Consistency:</strong> a transaction moves the database from one valid state to another, respecting all constraints.
-                <strong>Isolation:</strong> concurrent transactions execute as if they were serial — one doesn't see the intermediate state of another.
-                <strong>Durability:</strong> once committed, data survives crashes. Enabled by the <em>Write-Ahead Log (WAL)</em> — changes are logged before being applied to data pages.
-              </div>
-            </div>
-          </li>
+        <h3>ACID — What Each Property Actually Means</h3>
+        <p><strong>Atomicity</strong> means all-or-nothing. If your transaction updates three rows and the third write fails, the first two are rolled back. Nothing is left in a half-written state. This is implemented via the Write-Ahead Log (WAL) — changes are logged to disk before being applied to data pages, so on crash recovery the database can roll back incomplete transactions.</p>
+        <p><strong>Consistency</strong> means the database moves from one valid state to another. Your schema constraints (NOT NULL, UNIQUE, FOREIGN KEY, CHECK) are enforced at commit time. If a transaction would violate them, it's rejected. The application is responsible for the higher-level invariants (like "account balance must never go negative" — enforce this with a CHECK constraint or application logic).</p>
+        <p><strong>Isolation</strong> means concurrent transactions don't interfere with each other. Without isolation, Transaction A could read data that Transaction B is in the process of modifying — seeing a partially-updated world. Full isolation (serializability) makes concurrent transactions appear to execute one at a time, but this is expensive. SQL databases offer a spectrum of isolation levels as a performance tradeoff.</p>
+        <p><strong>Durability</strong> means once committed, data survives crashes. PostgreSQL guarantees this by fsyncing WAL entries to disk before acknowledging a commit. If the machine loses power immediately after a commit, the data is recoverable from the WAL on restart.</p>
 
-          <li class="check-item" data-id="isolation-levels">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Isolation Levels &amp; Read Phenomena</div>
-              <div class="check-item-desc">
-                <strong>Read Uncommitted:</strong> can read dirty (uncommitted) data. Practically unused.
-                <strong>Read Committed</strong> (PostgreSQL default): only reads committed data, but non-repeatable reads possible (re-reading a row may give different values within a transaction).
-                <strong>Repeatable Read:</strong> same row always returns same value within a transaction; phantom reads (new rows matching a WHERE) possible.
-                <strong>Serializable:</strong> full isolation, slowest. PostgreSQL uses SSI (Serializable Snapshot Isolation) — avoids locking by detecting conflicts.
-              </div>
-            </div>
-          </li>
+        <h3>Isolation Levels</h3>
+        <p>The SQL standard defines four isolation levels, each preventing a different class of anomaly:</p>
+        <table class="compare-table">
+          <thead><tr><th>Level</th><th>Dirty Read</th><th>Non-repeatable Read</th><th>Phantom Read</th></tr></thead>
+          <tbody>
+            <tr><td>Read Uncommitted</td><td>possible</td><td>possible</td><td>possible</td></tr>
+            <tr><td><strong>Read Committed</strong> (PG default)</td><td>prevented</td><td>possible</td><td>possible</td></tr>
+            <tr><td>Repeatable Read</td><td>prevented</td><td>prevented</td><td>possible*</td></tr>
+            <tr><td>Serializable</td><td>prevented</td><td>prevented</td><td>prevented</td></tr>
+          </tbody>
+        </table>
+        <p>* PostgreSQL's Repeatable Read also prevents phantom reads due to its MVCC snapshot implementation.</p>
+        <ul>
+          <li><strong>Dirty read:</strong> reading uncommitted data from another transaction. If that transaction rolls back, you read data that never existed.</li>
+          <li><strong>Non-repeatable read:</strong> reading the same row twice within a transaction and getting different values because another transaction committed between your reads.</li>
+          <li><strong>Phantom read:</strong> a query returns different rows the second time because another transaction inserted/deleted rows matching your WHERE clause.</li>
+        </ul>
+        <p>The default Read Committed level catches most problems. Use Repeatable Read or Serializable when you need to read a consistent snapshot (e.g., generating a report that queries multiple tables and needs them to agree). PostgreSQL implements Serializable with SSI (Serializable Snapshot Isolation) — it avoids locking by detecting conflict cycles, so it's less prone to deadlocks than traditional lock-based serialization.</p>
 
-          <li class="check-item" data-id="transactions">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Transactions &amp; Locking</div>
-              <div class="check-item-desc">
-                <code>BEGIN</code> / <code>COMMIT</code> / <code>ROLLBACK</code>. <code>SAVEPOINT name</code> for partial rollbacks.
-                <strong>Optimistic locking:</strong> read a version column, check it hasn't changed on update (<code>WHERE version = $old</code>). Good when conflicts are rare — no blocking.
-                <strong>Pessimistic locking:</strong> <code>SELECT ... FOR UPDATE</code> acquires a row-level lock. Prevents concurrent modification but can cause deadlocks.
-                <strong>Deadlock:</strong> T1 holds lock A, wants B; T2 holds B, wants A. PostgreSQL detects and aborts one.
-              </div>
-            </div>
-          </li>
+        <h3>Locking: Optimistic vs Pessimistic</h3>
+        <p><strong>Pessimistic locking:</strong> acquire a lock before reading, hold it until the transaction commits. Other transactions block on that row. Use when contention is high and you can't afford to retry.</p>
+        <pre><code>-- Lock the row for update. Other transactions block until this commits.
+SELECT * FROM orders WHERE id = $1 FOR UPDATE;
+UPDATE orders SET status = 'processing' WHERE id = $1;</code></pre>
+        <p><strong>Optimistic locking:</strong> don't lock on read. Include a version number (or updated_at timestamp) in your update condition. If someone else modified the row between your read and write, the UPDATE matches zero rows — you detect the conflict and retry.</p>
+        <pre><code>-- Read with version
+SELECT id, status, version FROM orders WHERE id = $1;
 
+-- Update only if version hasn't changed
+UPDATE orders
+SET status = 'processing', version = version + 1
+WHERE id = $1 AND version = $old_version;
+-- If this returns 0 rows, conflict detected — retry the whole operation</code></pre>
+        <p>Optimistic locking is preferred when conflicts are rare — no blocking means better throughput. Pessimistic is better when conflicts are frequent, making retries expensive.</p>
+        <p><strong>Deadlocks</strong> occur when Transaction A holds lock X and wants lock Y, while Transaction B holds lock Y and wants lock X. PostgreSQL detects this cycle and aborts one transaction (the one with least work done). Prevention: always acquire multiple locks in the same order across transactions.</p>
+
+        <h3>WAL &amp; Durability in Practice</h3>
+        <p>The Write-Ahead Log is central to both durability and replication in PostgreSQL. Every change is first appended to the WAL (an append-only log on disk), then applied to data pages. On crash, the database replays the WAL from the last checkpoint to recover committed transactions and discard uncommitted ones.</p>
+        <p>Streaming replication works by sending the WAL stream from primary to replicas in real time. Replicas replay the same WAL, staying in sync. This is why replicas can serve read queries — they're applying the same operations as the primary, just slightly behind.</p>
+        <p><code>fsync = on</code> (the default) guarantees durability by flushing WAL to disk before acknowledging commits. Disabling fsync is sometimes done for speed in dev/test environments — never in production. Data loss on power failure is certain with fsync off.</p>
+      </div>
+    </div>
+
+    <div class="section" data-id="indexing">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔍</span><h2>Indexing</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>An index is a separate data structure that the database maintains alongside your table to speed up lookups. Without an index, every query that filters on a column requires a sequential scan — reading every row in the table. With a well-placed index, the database navigates directly to the relevant rows.</p>
+        <p>The fundamental trade-off: <strong>indexes speed up reads but slow down writes</strong>. Every INSERT, UPDATE, and DELETE must update all indexes on the table. A table with 10 indexes has 10 extra write operations per row modification. Index thoughtfully.</p>
+
+        <h3>B-Tree Indexes (the Default)</h3>
+        <p>A B-tree is a balanced tree where each node stores sorted keys and pointers to child nodes or heap pages. Lookups, range scans, and sorts on indexed columns all run in O(log n). This is the right index for almost everything: equality (<code>=</code>), ranges (<code>&gt;</code>, <code>&lt;</code>, <code>BETWEEN</code>), and prefix matches (<code>LIKE 'foo%'</code>).</p>
+        <pre><code>-- Basic index
+CREATE INDEX idx_orders_user_id ON orders(user_id);
+
+-- Multi-column index. Column order matters:
+-- this index supports queries filtering by (user_id),
+-- or (user_id AND status), but NOT status alone.
+CREATE INDEX idx_orders_user_status ON orders(user_id, status);
+
+-- Rule: put the most selective column first, unless your
+-- query always filters on the second column too.</code></pre>
+
+        <h3>Covering Indexes</h3>
+        <p>A regular index lookup has two steps: find the row's location in the index, then fetch the row from the heap. A <strong>covering index</strong> stores extra columns in the index itself, eliminating the heap fetch entirely:</p>
+        <pre><code>-- Without covering index: index scan + heap fetch for each row
+CREATE INDEX idx_orders_user ON orders(user_id);
+SELECT user_id, status, created_at FROM orders WHERE user_id = $1;
+-- ^ needs to hit the heap for status and created_at
+
+-- With covering index: index-only scan, no heap access
+CREATE INDEX idx_orders_user_cover ON orders(user_id)
+  INCLUDE (status, created_at);
+-- ^ all needed columns are in the index</code></pre>
+        <p>Index-only scans can be dramatically faster for frequently-run queries on large tables. Use EXPLAIN to confirm <code>Index Only Scan</code> is being used.</p>
+
+        <h3>Partial &amp; Expression Indexes</h3>
+        <pre><code>-- Partial index: only index rows matching a condition.
+-- Smaller, faster, more targeted.
+CREATE INDEX idx_orders_pending ON orders(created_at)
+  WHERE status = 'pending';
+-- Perfect for: "find the oldest pending orders"
+
+-- Expression index: index on a computed value
+CREATE INDEX idx_users_email_lower ON users(LOWER(email));
+-- Supports: WHERE LOWER(email) = LOWER($1)</code></pre>
+
+        <h3>Other Index Types</h3>
+        <ul>
+          <li><strong>Hash:</strong> O(1) equality lookups only. No range support. Rarely better than B-tree in practice.</li>
+          <li><strong>GIN (Generalized Inverted Index):</strong> for full-text search, JSONB containment (<code>@&gt;</code>), array operators, and <code>pg_trgm</code> trigram search. Slow to build, fast to query.</li>
+          <li><strong>BRIN (Block Range Index):</strong> tiny index that stores min/max values per range of blocks. Only useful for naturally ordered data (auto-increment IDs, timestamps). Extremely small — good for time-series data where you always query by time range.</li>
+        </ul>
+        <div class="note">
+          <strong>When NOT to index:</strong> small tables (sequential scans are faster than index lookups for tables under ~1000 rows), columns with very low cardinality (e.g., a boolean column — a B-tree index on a true/false column is almost never useful), columns that are written far more than read.
+        </div>
+      </div>
+    </div>
+
+    <div class="section" data-id="query-optimization">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">⚡</span><h2>Query Optimization</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>The PostgreSQL query planner generates an execution plan for every query. EXPLAIN shows you what the planner chose; EXPLAIN ANALYZE actually executes it and shows what happened vs what was estimated. This is your primary tool for understanding and fixing slow queries.</p>
+
+        <h3>Reading EXPLAIN ANALYZE</h3>
+        <pre><code>EXPLAIN ANALYZE
+SELECT u.name, COUNT(o.id)
+FROM users u
+JOIN orders o ON o.user_id = u.id
+WHERE u.created_at > '2024-01-01'
+GROUP BY u.id;</code></pre>
+        <p>Key things to look for:</p>
+        <ul>
+          <li><strong>Seq Scan on large tables</strong> — a sequential scan reading millions of rows when you expected an index scan. Either the index is missing, the planner estimates it's faster to seq scan (check row estimates), or the query can't use the index as written.</li>
+          <li><strong>Rows estimate vs actual rows</strong> — large discrepancies (e.g., estimated 100 rows, actual 1,000,000) mean stale statistics. Run <code>ANALYZE table_name</code> to refresh. The planner's row estimates drive almost every other decision.</li>
+          <li><strong>Nested Loop on large result sets</strong> — fine for small tables, catastrophic for large ones. For large joins, Hash Join or Merge Join is usually better.</li>
+          <li><strong>High cost numbers</strong> — the cost is in arbitrary units (roughly: disk page reads). The outer parenthetical is (startup cost, total cost). High startup cost on a Nested Loop means the inner loop runs many times.</li>
+        </ul>
+        <p>The three join strategies: <strong>Nested Loop</strong> (iterate outer, scan inner for each row — good when inner is small or indexed), <strong>Hash Join</strong> (hash the smaller table, probe with the larger — good for large unsorted tables), <strong>Merge Join</strong> (merge two sorted inputs — good when both sides are already sorted or can be sorted cheaply).</p>
+
+        <h3>The N+1 Problem</h3>
+        <p>One of the most common performance killers in backend applications. Instead of one JOIN, the ORM executes one query to fetch N parent records, then N separate queries to fetch each parent's children:</p>
+        <pre><code>-- N+1: fetches all users, then one query per user to get their orders
+const users = await db.query('SELECT * FROM users');
+for (const user of users) {
+  user.orders = await db.query('SELECT * FROM orders WHERE user_id = $1', [user.id]);
+}
+// Result: 1 + N queries (e.g., 1 + 10,000 = 10,001 queries)
+
+-- Fix: one query with a JOIN
+const result = await db.query(`
+  SELECT u.*, o.*
+  FROM users u
+  LEFT JOIN orders o ON o.user_id = u.id
+`);
+
+-- Or: two queries — fetch all users, then all relevant orders in one shot
+const users = await db.query('SELECT * FROM users');
+const userIds = users.map(u => u.id);
+const orders = await db.query('SELECT * FROM orders WHERE user_id = ANY($1)', [userIds]);</code></pre>
+        <p>Watch for N+1 in ORMs (Sequelize, SQLAlchemy, Active Record). Use your ORM's eager loading (<code>include</code>/<code>joins</code>) to fetch related data in one query. Enable query logging in development to catch N+1 before it hits production.</p>
+
+        <h3>Common Optimization Patterns</h3>
+        <ul>
+          <li><strong>Avoid SELECT *</strong> — fetching unused columns wastes bandwidth and prevents index-only scans. Select only the columns you need.</li>
+          <li><strong>Use LIMIT with ORDER BY</strong> — but ensure the ORDER BY column is indexed, otherwise PostgreSQL sorts the entire result set before applying LIMIT.</li>
+          <li><strong>Keyset pagination over OFFSET</strong> — <code>OFFSET 50000</code> scans and discards 50,000 rows. Keyset pagination (<code>WHERE id &gt; $last_seen_id ORDER BY id LIMIT 20</code>) is O(1) regardless of page number.</li>
+          <li><strong>pg_stat_statements</strong> — the PostgreSQL extension that tracks query statistics (total calls, mean time, total time). Essential for finding your slowest queries in production: <code>SELECT query, mean_exec_time, calls FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 20</code>.</li>
         </ul>
       </div>
     </div>
 
-    <!-- INDEXING & QUERY OPTIMIZATION -->
-    <div class="section">
+    <div class="section" data-id="scaling">
       <div class="section-header">
-        <span class="section-icon">🔍</span>
-        <h2>Indexing &amp; Query Optimization</h2>
+        <div class="section-header-left"><span class="section-icon">📐</span><h2>Replication, Sharding &amp; Connection Pooling</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
-        <ul class="checklist">
+        <h3>Replication</h3>
+        <p>PostgreSQL's default replication model is <strong>primary-replica</strong> (also called primary-standby). All writes go to the primary. Replicas receive and apply the WAL stream, staying in sync. Replicas can serve read queries.</p>
+        <p><strong>Synchronous replication:</strong> the primary waits for at least one replica to confirm it has written the WAL before acknowledging the commit to the client. Zero data loss on failover, but higher write latency (two network round trips). Configure with <code>synchronous_standby_names</code>.</p>
+        <p><strong>Asynchronous replication</strong> (the default): the primary acknowledges commits immediately and sends WAL to replicas in the background. Lower write latency, but a failover might lose the last few seconds of transactions. The replica lag metric tells you how far behind each replica is.</p>
 
-          <li class="check-item" data-id="indexing">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Index Types</div>
-              <div class="check-item-desc">
-                <strong>B-tree</strong> (default): balanced tree, great for equality and range queries (<code>=</code>, <code>&lt;</code>, <code>BETWEEN</code>, <code>LIKE 'foo%'</code>).
-                <strong>Hash:</strong> O(1) equality lookups only, no range support.
-                <strong>GIN</strong> (Generalized Inverted Index): for full-text search, JSONB containment, array operators.
-                <strong>GiST:</strong> geometric types, full-text. <strong>BRIN:</strong> Block Range — tiny, great for naturally ordered columns (timestamps, auto-increment IDs).
-                <strong>Covering index:</strong> <code>CREATE INDEX ON orders(user_id) INCLUDE (status, created_at)</code> — query satisfied entirely from index (no heap fetch). Massive speedup for frequently-run queries.
-                Trade-off: every index slows writes (INSERT/UPDATE/DELETE must update all indexes) and uses disk.
-              </div>
-            </div>
-          </li>
+        <figure class="diagram">
+          <img src="../images/databases/master-slave-replication.png" alt="Primary-replica replication: writes go to primary, replicated to one or more read replicas">
+          <figcaption>Primary-replica replication. All writes go to the primary; WAL is streamed to replicas. Read queries can be served by replicas. If the primary fails, a replica is promoted.</figcaption>
+        </figure>
+        <p><strong>Multi-master replication</strong> allows writes to go to any node in the cluster. Each node accepts writes and replicates to the others. Useful for multi-region setups (each region has a local primary, reducing write latency for geographically distributed users). The hard part is <strong>conflict resolution</strong>: two nodes accept a write to the same row simultaneously. Strategies: last-write-wins (by timestamp — unreliable due to clock skew), custom merge functions, or CRDT-based data structures. Use multi-master only when single-primary latency is genuinely unacceptable.</p>
+        <figure class="diagram">
+          <img src="../images/databases/master-master-replication.png" alt="Multi-master replication: writes go to any of multiple primary nodes, each replicating to the others">
+          <figcaption>Multi-master (active-active) replication. Any node accepts writes, then replicates to peers. Enables low-latency writes across regions but requires conflict resolution when concurrent writes affect the same data.</figcaption>
+        </figure>
+        <p><strong>Read replicas</strong> scale your read traffic. Route reads that can tolerate slight staleness to replicas (reports, dashboards, search). Route reads that require freshness (read-your-own-writes) to the primary. Your application needs to know about this routing — some ORMs and connection poolers handle it automatically.</p>
 
-          <li class="check-item" data-id="explain">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">EXPLAIN ANALYZE</div>
-              <div class="check-item-desc">
-                <code>EXPLAIN ANALYZE SELECT ...</code> actually executes the query and shows actual vs estimated rows, loop counts, and timings.
-                Key nodes: <strong>Seq Scan</strong> (reads whole table — often bad on large tables), <strong>Index Scan</strong> (uses index then fetches heap), <strong>Index Only Scan</strong> (all data in index, best), <strong>Bitmap Index Scan</strong> (OR-ing multiple indexes).
-                Join strategies: <strong>Nested Loop</strong> (small tables), <strong>Hash Join</strong> (unsorted, large sets), <strong>Merge Join</strong> (pre-sorted, good for ranges).
-                Look for: high actual vs estimated row discrepancy (stale stats → run <code>ANALYZE</code>), unexpected Seq Scans, high loop counts.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="joins">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">JOIN Types</div>
-              <div class="check-item-desc">
-                <strong>INNER JOIN:</strong> only matching rows from both sides.
-                <strong>LEFT OUTER JOIN:</strong> all rows from left + matching right (nulls where no match).
-                <strong>RIGHT OUTER JOIN:</strong> inverse of LEFT.
-                <strong>FULL OUTER JOIN:</strong> all rows from both, nulls where no match.
-                <strong>CROSS JOIN:</strong> Cartesian product (every row × every row) — rarely intentional.
-                <strong>Self-join:</strong> table joined to itself (e.g. employee → manager).
-                <strong>Anti-join pattern:</strong> <code>LEFT JOIN … WHERE right.id IS NULL</code> — find rows with no match (cheaper than <code>NOT IN</code> / <code>NOT EXISTS</code> in some cases).
-              </div>
-            </div>
-          </li>
-
+        <h3>Sharding</h3>
+        <p>Sharding horizontally partitions data across multiple independent database instances. Each shard holds a subset of rows. You shard when a single primary can no longer handle write throughput or when data size exceeds what a single instance can handle efficiently.</p>
+        <p><strong>Shard key selection is the critical decision</strong> and it's extremely hard to change later. A bad shard key creates hot spots: one shard receives a disproportionate share of traffic.</p>
+        <ul>
+          <li><strong>Bad shard key: created_at (by day)</strong> — all writes today go to one shard. The "hot" shard handles everything while others sit idle.</li>
+          <li><strong>Bad shard key: country_code</strong> — the US shard might get 40% of traffic, making scaling uneven.</li>
+          <li><strong>Good shard key: user_id (hashed)</strong> — high cardinality, writes distributed evenly across users, most queries filter by user_id anyway so they route to one shard.</li>
         </ul>
-      </div>
-    </div>
+        <p>Sharding strategies: <strong>Range-based</strong> (user_id 1–1M on shard 1, 1M–2M on shard 2 — easy range queries, hot spots possible), <strong>Hash-based</strong> (shard = hash(user_id) % N — even distribution, hard to range query, painful to rebalance), <strong>Directory-based</strong> (lookup table maps keys to shards — flexible but adds a hop).</p>
+        <p>The hard parts of sharding: cross-shard JOINs don't work (denormalize or move joins to the application layer), cross-shard transactions require two-phase commit or sagas, rebalancing when adding shards requires live data migration. Start with a single well-tuned primary + read replicas. Shard only when you genuinely can't scale further.</p>
 
-    <!-- DESIGN & SCALING -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-icon">📐</span>
-        <h2>Design &amp; Scaling</h2>
-      </div>
-      <div class="section-body">
-        <ul class="checklist">
+        <figure class="diagram">
+          <img src="../images/databases/sharding.png" alt="Database sharding: rows distributed across multiple database instances by shard key">
+          <figcaption>Horizontal sharding: a shard key (e.g., user_id % N) determines which database instance holds each row. Writes scale horizontally, but cross-shard queries become application-layer joins.</figcaption>
+        </figure>
 
-          <li class="check-item" data-id="normalization">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Normalization &amp; Denormalization</div>
-              <div class="check-item-desc">
-                <strong>1NF:</strong> atomic values, no repeating groups.
-                <strong>2NF:</strong> 1NF + no partial dependency on composite primary key.
-                <strong>3NF:</strong> 2NF + no transitive dependency (non-key column depends only on the PK, not other non-key columns).
-                <strong>BCNF:</strong> every determinant is a candidate key.
-                <strong>Denormalization:</strong> intentional redundancy for read performance — store a computed count column, duplicate a name field to avoid a join. Trade-off: write complexity and inconsistency risk. OLAP schemas (star/snowflake) are intentionally denormalized for query speed.
-              </div>
-            </div>
-          </li>
+        <figure class="diagram">
+          <img src="../images/databases/sharding-algorithms.png" alt="Comparison of sharding algorithms: range-based, hash-based, and directory-based">
+          <figcaption>The three sharding strategies compared. Hash-based distributes evenly but makes range queries hard. Range-based supports range queries but creates hot spots. Directory-based is flexible but adds a lookup hop on every request.</figcaption>
+        </figure>
 
-          <li class="check-item" data-id="replication">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Replication</div>
-              <div class="check-item-desc">
-                <strong>Primary-replica:</strong> all writes go to primary; replicas catch up via WAL streaming.
-                <strong>Synchronous replication:</strong> write is only committed once at least one replica has confirmed — zero data loss, higher write latency.
-                <strong>Asynchronous replication</strong> (default): lower latency, but a failover may lose a few transactions.
-                <strong>Read replicas:</strong> scale read traffic, but reads may be slightly stale. Route reads that can tolerate stale data to replicas.
-                <strong>Logical replication:</strong> replicate specific tables or filtered rows. <strong>Physical/streaming:</strong> byte-for-byte copy of WAL — can't replicate to different Postgres major version.
-              </div>
-            </div>
-          </li>
+        <h3>Federation</h3>
+        <p>Federation (also called functional partitioning) splits the database by function — separate databases per domain — rather than horizontally by row. Instead of one monolithic database with all tables, you have a users database, an orders database, and a products database. Each is smaller, independently scalable, and can be independently tuned. The tradeoff: cross-domain joins are gone. Application code must do the joining. Federation is a step before sharding — easier to implement but less granular.</p>
 
-          <li class="check-item" data-id="sharding">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Sharding</div>
-              <div class="check-item-desc">
-                Horizontally partitioning data across multiple databases. Each shard holds a subset of rows.
-                <strong>Shard key selection is critical:</strong> bad key → hot spots (one shard gets all traffic). Good keys have high cardinality and distribute writes evenly (e.g. user_id, not country_code).
-                Strategies: <strong>Range-based</strong> (easy range queries, prone to hot spots), <strong>Hash-based</strong> (even distribution, hard to range query), <strong>Directory-based</strong> (lookup table, flexible but extra hop).
-                Pitfalls: cross-shard JOINs are expensive/impossible, cross-shard transactions are hard, rebalancing when adding shards requires data migration.
-              </div>
-            </div>
-          </li>
-
+        <h3>Connection Pooling</h3>
+        <p>PostgreSQL spawns a process per connection — forking is expensive. With 500 application pods each holding 10 connections, you're hitting the default <code>max_connections = 100</code> immediately and burning memory on connection overhead at scale.</p>
+        <p><strong>PgBouncer</strong> is the standard connection pooler for PostgreSQL. It maintains a pool of server connections and multiplexes many client connections onto fewer server connections.</p>
+        <p>PgBouncer modes:</p>
+        <ul>
+          <li><strong>Session mode:</strong> one server connection per client session. No actual pooling benefit for long-lived connections.</li>
+          <li><strong>Transaction mode</strong> (recommended): the server connection is returned to the pool after each transaction completes. One server connection can serve many clients as long as they're not in a transaction simultaneously. Breaks prepared statements and <code>SET</code> commands that persist across transactions.</li>
+          <li><strong>Statement mode:</strong> returned after each statement. Breaks multi-statement transactions entirely. Rarely useful.</li>
         </ul>
+        <p>Pool sizing rule of thumb: <code>(2 × num_cpu_cores) + num_disk_spindles</code> server connections is a reasonable starting point. For cloud databases, start with <code>2 × vCPU count</code>. Cloud-managed options: AWS RDS Proxy, Supabase PgBouncer, PlanetScale's connection proxy.</p>
       </div>
     </div>
 
-    <!-- NOSQL & ADVANCED POSTGRES -->
-    <div class="section">
+    <div class="section" data-id="advanced-pg">
       <div class="section-header">
-        <span class="section-icon">🧩</span>
-        <h2>NoSQL &amp; Advanced PostgreSQL</h2>
+        <div class="section-header-left"><span class="section-icon">🧩</span><h2>Advanced PostgreSQL &amp; NoSQL</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
-        <ul class="checklist">
+        <h3>Window Functions</h3>
+        <p>Window functions apply a function over a set of rows <em>related to the current row</em> without collapsing them into a group the way GROUP BY does. They're how you write rankings, running totals, and "previous value" comparisons in pure SQL.</p>
+        <pre><code>-- Rank orders by amount within each user, largest first
+SELECT
+  user_id,
+  order_id,
+  amount,
+  RANK() OVER (PARTITION BY user_id ORDER BY amount DESC) AS rank
+FROM orders;
 
-          <li class="check-item" data-id="nosql">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">NoSQL Types</div>
-              <div class="check-item-desc">
-                <strong>Document</strong> (MongoDB, Firestore): JSON/BSON documents, flexible schema, rich queries. Good for content, catalogs, user profiles.
-                <strong>Key-Value</strong> (Redis, DynamoDB): simplest model, ultra-fast, limited queries. Good for sessions, caching, leaderboards.
-                <strong>Wide-Column</strong> (Cassandra, Bigtable): rows have dynamic columns grouped into column families. Write-optimized (LSM tree), excellent for time-series, IoT. Queries must be designed around access patterns.
-                <strong>Graph</strong> (Neo4j, Amazon Neptune): nodes + edges with properties. Best when relationships are first-class (social graphs, fraud detection, recommendation engines).
-                <strong>Time-series</strong> (InfluxDB, TimescaleDB): optimized for append-only timestamped data with fast range + aggregation queries.
-              </div>
-            </div>
-          </li>
+-- Running total of revenue, ordered by date
+SELECT
+  date,
+  daily_revenue,
+  SUM(daily_revenue) OVER (ORDER BY date) AS running_total
+FROM daily_revenue;
 
-          <li class="check-item" data-id="window-functions">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Window Functions</div>
-              <div class="check-item-desc">
-                Apply a function over a set of rows <em>related to the current row</em> without collapsing rows (unlike GROUP BY).
-                <code>ROW_NUMBER()</code> — unique sequential number per partition.
-                <code>RANK()</code> — gaps for ties; <code>DENSE_RANK()</code> — no gaps.
-                <code>LAG(col, n)</code> / <code>LEAD(col, n)</code> — access previous/next row value.
-                <code>SUM() OVER (PARTITION BY ... ORDER BY ...)</code> — running total.
-                <code>FIRST_VALUE()</code> / <code>LAST_VALUE()</code> / <code>NTH_VALUE()</code>.
-                Used for rankings, moving averages, running totals, detecting gaps in sequences.
-              </div>
-            </div>
-          </li>
+-- Previous and next row values (great for detecting gaps)
+SELECT
+  id,
+  created_at,
+  LAG(created_at)  OVER (ORDER BY created_at) AS prev_event,
+  LEAD(created_at) OVER (ORDER BY created_at) AS next_event
+FROM events;</code></pre>
+        <p>Key functions: <code>ROW_NUMBER()</code> (unique seq number, no ties), <code>RANK()</code> (gaps for ties), <code>DENSE_RANK()</code> (no gaps), <code>LAG(col, n)</code>/<code>LEAD(col, n)</code> (look backward/forward n rows), <code>FIRST_VALUE()</code>/<code>LAST_VALUE()</code>, <code>NTILE(n)</code> (divide rows into n buckets).</p>
 
-          <li class="check-item" data-id="jsonb">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">PostgreSQL JSONB</div>
-              <div class="check-item-desc">
-                <strong>JSONB</strong> stores parsed binary (fast querying, deduplicates keys, loses key order/whitespace).
-                <strong>JSON</strong> stores as-is text (fast insert, slow query — must parse every time).
-                Key operators: <code>-&gt;</code> (extract JSON), <code>-&gt;&gt;</code> (extract as text), <code>#&gt;</code> (path), <code>@&gt;</code> (containment), <code>?</code> (key exists).
-                Index JSONB with <strong>GIN</strong> for fast containment (<code>@&gt;</code>) and key existence (<code>?</code>) queries.
-                For frequently-queried fields, a generated column + regular B-tree index is often faster than GIN.
-              </div>
-            </div>
-          </li>
+        <h3>JSONB</h3>
+        <p>PostgreSQL's JSONB stores JSON as parsed binary — keys are deduplicated, order is not preserved, but queries are fast. Use it for flexible schemas, semi-structured data, or when you need some columns to vary per row.</p>
+        <pre><code>-- JSONB operators
+SELECT metadata -> 'address'           -- returns JSON
+SELECT metadata ->> 'address'          -- returns text
+SELECT metadata #>> '{address,city}'   -- nested path as text
+SELECT metadata @> '{"country":"US"}' -- containment check (indexable)
+SELECT metadata ? 'phone_number'       -- key existence (indexable)
 
-          <li class="check-item" data-id="connection-pooling">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Connection Pooling</div>
-              <div class="check-item-desc">
-                PostgreSQL spawns a process per connection — opening connections is expensive. With 1000 app instances each holding 10 connections, you need 10,000 DB processes.
-                <strong>PgBouncer</strong> modes: <em>Session</em> (1:1, client gets connection for session lifetime), <em>Transaction</em> (connection returned to pool after each transaction — recommended), <em>Statement</em> (after each statement, breaks multi-statement transactions).
-                Sizing rule of thumb: <code>connections = (2 × num_cpu_cores) + num_disk_spindles</code>. Default <code>max_connections</code> in PostgreSQL is 100.
-                In cloud: AWS RDS Proxy, PlanetScale's proxy, Supabase's PgBouncer are managed options.
-              </div>
-            </div>
-          </li>
+-- GIN index for fast containment and key queries
+CREATE INDEX idx_users_metadata ON users USING GIN (metadata);
 
+-- For a frequently-queried field, a generated column + B-tree is faster
+ALTER TABLE users
+  ADD COLUMN country TEXT GENERATED ALWAYS AS (metadata->>'country') STORED;
+CREATE INDEX ON users(country);</code></pre>
+        <p>JSONB vs JSON: JSONB is almost always what you want. JSON preserves input format (useful for audit logging) but must parse on every access. JSONB parses once at write time and stores efficiently. The performance difference matters at query time.</p>
+
+        <h3>NoSQL — When to Actually Use It</h3>
+        <p>PostgreSQL handles most use cases well (flexible schema via JSONB, full-text search, time-series with TimescaleDB). Reach for NoSQL when:</p>
+        <ul>
+          <li><strong>Write throughput exceeds one primary's capacity</strong> — Cassandra and DynamoDB have native horizontal write scaling. PostgreSQL sharding is painful; Cassandra sharding is designed in from day one.</li>
+          <li><strong>Access patterns are fixed and known upfront</strong> — Cassandra queries must be designed around your partition key and clustering columns. If you know exactly how data will be queried, Cassandra is extremely fast. If you need ad-hoc queries, use PostgreSQL.</li>
+          <li><strong>Sub-millisecond reads at extreme scale</strong> — Redis for caching and hot data paths, DynamoDB with DAX. Not because PostgreSQL is slow, but because these systems are purpose-built for this.</li>
+          <li><strong>Graph relationships are first-class</strong> — social graphs, recommendation engines, fraud detection. Neo4j traverses deep relationship graphs far faster than SQL JOINs.</li>
         </ul>
+        <p>NoSQL types at a glance: <strong>Document</strong> (MongoDB, Firestore) — flexible JSON docs, rich queries. <strong>Key-Value</strong> (Redis, DynamoDB) — simplest, fastest. <strong>Wide-Column</strong> (Cassandra, Bigtable) — write-optimized LSM tree, great for time-series. <strong>Graph</strong> (Neo4j) — relationships as first-class citizens. <strong>Time-Series</strong> (InfluxDB, TimescaleDB) — optimized for timestamped append-only data.</p>
+
+        <figure class="diagram">
+          <img src="../images/databases/sql-vs-nosql.png" alt="SQL vs NoSQL comparison across consistency, scalability, schema flexibility, and query power">
+          <figcaption>SQL vs NoSQL tradeoffs. SQL databases excel at complex queries, strong consistency, and relational integrity. NoSQL databases prioritize horizontal scalability and flexible schemas — at the cost of query flexibility and consistency guarantees.</figcaption>
+        </figure>
+
+        <figure class="diagram">
+          <img src="../images/databases/wide-column.png" alt="Wide-column store structure: rows with variable columns organized around a partition key and clustering key">
+          <figcaption>Wide-column stores (Cassandra, Bigtable) organize data around a partition key (which node holds the data) and clustering columns (ordering within a partition). Queries must align with this structure — Cassandra's data model is designed around query patterns, not normalization.</figcaption>
+        </figure>
+
+        <figure class="diagram">
+          <img src="../images/databases/graph-db.png" alt="Graph database structure: nodes connected by typed edges with properties">
+          <figcaption>Graph databases store entities as nodes and relationships as typed edges with properties. Multi-hop traversals ("friends of friends who bought X") that require recursive CTEs in SQL are first-class operations in graph query languages (Cypher, Gremlin).</figcaption>
+        </figure>
+
+        <figure class="diagram">
+          <img src="../images/databases/database-types.png" alt="Overview of database types: relational, document, key-value, wide-column, graph, time-series">
+          <figcaption>Database taxonomy. Relational databases handle the majority of use cases. Reach for specialized stores when your access patterns or scale characteristics genuinely require it.</figcaption>
+        </figure>
       </div>
     </div>
 
-    <!-- Q&A -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-icon">🧠</span>
-        <h2>Quick Review</h2>
-      </div>
-      <div class="section-body">
-
-        <details class="qa">
-          <summary>What read phenomena can occur at each isolation level?</summary>
-          <div class="qa-body">
-            <table class="compare-table">
-              <thead><tr><th>Level</th><th>Dirty Read</th><th>Non-repeatable Read</th><th>Phantom Read</th></tr></thead>
-              <tbody>
-                <tr><td>Read Uncommitted</td><td>✓ possible</td><td>✓ possible</td><td>✓ possible</td></tr>
-                <tr><td>Read Committed</td><td>✗ prevented</td><td>✓ possible</td><td>✓ possible</td></tr>
-                <tr><td>Repeatable Read</td><td>✗</td><td>✗ prevented</td><td>✓ possible*</td></tr>
-                <tr><td>Serializable</td><td>✗</td><td>✗</td><td>✗ prevented</td></tr>
-              </tbody>
-            </table>
-            <p>* PostgreSQL's Repeatable Read actually prevents phantoms too (MVCC-based snapshot), unlike the SQL standard's definition.</p>
-          </div>
-        </details>
-
-        <details class="qa">
-          <summary>Why is selecting a good shard key so important?</summary>
-          <div class="qa-body">
-            <p>A bad shard key creates <strong>hot spots</strong> — one shard receives a disproportionate share of writes. Example: sharding by <code>created_at</code> day means all writes today go to one shard. Example: sharding by <code>country</code> means the US shard may get 40% of traffic.</p>
-            <p>A good key: high cardinality (many possible values), even write distribution, ideally part of common query predicates (so queries can be routed to one shard). <code>user_id</code> or a UUID is often ideal. Consistent hashing makes future rebalancing less painful than modulo-based assignment.</p>
-          </div>
-        </details>
-
-        <details class="qa">
-          <summary>When should you choose NoSQL over PostgreSQL?</summary>
-          <div class="qa-body">
-            <p>PostgreSQL is often the right default — it handles flexible schema (JSONB), full-text search, JSON APIs, time-series (with TimescaleDB), and graph-adjacent queries well.</p>
-            <p>Reach for NoSQL when: (1) <strong>write throughput exceeds what a single primary can handle</strong> and you need native horizontal write scaling (Cassandra, DynamoDB); (2) your data is inherently a <strong>document with no relational structure</strong> and schema flexibility is paramount; (3) you need <strong>sub-millisecond reads at extreme scale</strong> (Redis/DynamoDB for caching and hot paths); (4) your access patterns are fixed and known upfront (wide-column databases are designed around queries, not flexibility).</p>
-          </div>
-        </details>
-
-        <details class="qa">
-          <summary>What's the difference between a clustered and non-clustered index?</summary>
-          <div class="qa-body">
-            <p>A <strong>clustered index</strong> determines the physical order of rows on disk — there can only be one. In MySQL/InnoDB, the primary key is the clustered index; the table <em>is</em> the index. In PostgreSQL, there's no clustered index concept by default (heap is unordered), but you can run <code>CLUSTER table USING index</code> to physically reorder a table.</p>
-            <p>A <strong>non-clustered index</strong> (all indexes in PostgreSQL) is a separate structure that stores index key + a pointer (heap tuple ID) to the actual row. Fetching the row requires an extra lookup to the heap ("heap fetch"). A <em>covering index</em> avoids this by including all needed columns in the index itself.</p>
-          </div>
-        </details>
-
-      </div>
-    </div>
-
-    <!-- RESOURCES -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-icon">📚</span>
-        <h2>Go Deeper</h2>
+    <div class="section" style="border-style:dashed;">
+      <div class="section-header" style="border-bottom:none;">
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
       </div>
       <div class="section-body">
         <div class="resource-list">
-
-          <div class="resource">
-            <span class="resource-type book">book</span>
-            <div class="resource-content">
-              <div class="resource-title">Designing Data-Intensive Applications</div>
-              <div class="resource-author">Martin Kleppmann — O'Reilly</div>
-              <div class="resource-desc">The single best book on databases and distributed systems. Chapters 2–4 (data models, storage engines, encoding) and chapters 7–9 (transactions, distributed data, consistency) are essential. Read this slowly — it rewards re-reading.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type blog">blog</span>
-            <div class="resource-content">
-              <div class="resource-title">Use The Index, Luke</div>
-              <div class="resource-author">Markus Winand — use-the-index-luke.com</div>
-              <div class="resource-desc">Free online book entirely about SQL indexing and query performance. Demystifies B-tree indexes, covering indexes, partial indexes, and how the optimizer thinks. Directly applicable to PostgreSQL.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type docs">docs</span>
-            <div class="resource-content">
-              <div class="resource-title">PostgreSQL Documentation — MVCC &amp; Indexes</div>
-              <div class="resource-author">postgresql.org/docs</div>
-              <div class="resource-desc">The PG docs are unusually readable. The MVCC chapter explains exactly how isolation levels and snapshots work in PostgreSQL specifically. The Indexes chapter covers all index types with usage guidance.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type blog">blog</span>
-            <div class="resource-content">
-              <div class="resource-title">The Internals of PostgreSQL</div>
-              <div class="resource-author">Hironobu Suzuki — interdb.jp/pg</div>
-              <div class="resource-desc">Free online deep dive into PostgreSQL internals — heap file structure, MVCC visibility, WAL, checkpoints, vacuum. Go here when you want to understand why something behaves the way it does.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type tool">tool</span>
-            <div class="resource-content">
-              <div class="resource-title">explain.dalibo.com</div>
-              <div class="resource-author">Dalibo</div>
-              <div class="resource-desc">Paste a PostgreSQL EXPLAIN output and get a beautiful visual breakdown. Essential for understanding query plans. Use this whenever you're optimizing a slow query.</div>
-            </div>
-          </div>
-
+          <div class="resource"><span class="resource-type book">book</span><div class="resource-content"><div class="resource-title">Designing Data-Intensive Applications</div><div class="resource-author">Martin Kleppmann — O'Reilly</div><div class="resource-desc">The single best book on databases and distributed systems. Chapters 2–4 (data models, storage engines) and 7–9 (transactions, consistency) are essential. Read slowly — rewards re-reading.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Use The Index, Luke</div><div class="resource-author">Markus Winand — use-the-index-luke.com</div><div class="resource-desc">Free online book entirely about SQL indexing. Demystifies B-trees, covering indexes, and query optimizer decisions. Directly applicable to PostgreSQL.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">The Internals of PostgreSQL</div><div class="resource-author">Hironobu Suzuki — interdb.jp/pg</div><div class="resource-desc">Deep dive into PG internals — heap structure, MVCC, WAL, checkpoints, VACUUM. Go here when you need to understand why something behaves the way it does.</div></div></div>
+          <div class="resource"><span class="resource-type tool">tool</span><div class="resource-content"><div class="resource-title">explain.dalibo.com</div><div class="resource-author">Dalibo</div><div class="resource-desc">Paste a PostgreSQL EXPLAIN output and get a beautiful visual breakdown. Use whenever you're optimizing a slow query.</div></div></div>
         </div>
       </div>
     </div>
@@ -380,17 +361,15 @@
 <footer class="site-footer">
   <div class="module-nav">
     <a href="observability.html">← Observability</a>
-    <a href="../index.html" class="center">All modules</a>
+    <a href="../backend.html" class="center">All modules</a>
     <a href="system-design.html">System Design →</a>
   </div>
 </footer>
 
 <script src="../js/app.js"></script>
 <script>
-  initChecklist('databases');
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('../sw.js').catch(() => {});
-  }
+  initSections('databases');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
 </script>
 </body>
 </html>

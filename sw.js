@@ -1,10 +1,11 @@
-const CACHE = 'primer-v1';
+const CACHE = 'primer-v10';
 
 const PRECACHE = [
   './',
   './index.html',
   './css/style.css',
   './js/app.js',
+  './js/highlight.js',
   './manifest.json',
   './icons/icon.svg',
   './topics/observability.html',
@@ -15,6 +16,19 @@ const PRECACHE = [
   './topics/security.html',
   './topics/infrastructure.html',
   './topics/message-queues.html',
+  './topics/api-design.html',
+  './backend.html',
+  './go.html',
+  './topics/go-fundamentals.html',
+  './topics/go-concurrency.html',
+  './topics/go-patterns.html',
+  './topics/go-control-data.html',
+  './topics/go-idioms.html',
+  './topics/go-http.html',
+  './topics/go-api.html',
+  './docs.html',
+  './js/markdown.js',
+  './docs/effective_go.md',
 ];
 
 self.addEventListener('install', e => {

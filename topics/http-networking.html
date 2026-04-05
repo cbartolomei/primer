@@ -3,346 +3,202 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HTTP & APIs — Primer</title>
+  <title>HTTP &amp; APIs — Primer</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
   <link rel="manifest" href="../manifest.json">
   <meta name="theme-color" content="#7c63f5">
   <link rel="stylesheet" href="../css/style.css">
 </head>
 <body>
-
 <header class="site-header">
   <div class="inner">
-    <a href="../index.html" class="header-back">← Back</a>
-    <span class="site-logo">pri<span>m</span>er</span>
+    <a href="../backend.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
     <div class="header-progress">
-      <div class="progress-bar-wrap">
-        <div class="progress-bar" id="topic-progress-bar" style="width:0%"></div>
-      </div>
-      <div class="progress-label" id="topic-progress-label">0 / 11 concepts covered</div>
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 3 sections understood</div>
     </div>
   </div>
 </header>
 
 <main class="container">
   <div class="page-hero">
-    <h1>🌐 HTTP & APIs</h1>
-    <p class="subtitle">HTTP protocol versions, API paradigms (REST, GraphQL, gRPC), WebSockets, and network fundamentals.</p>
+    <h1>🌐 HTTP &amp; APIs</h1>
+    <p class="subtitle">How the web actually works — HTTP evolution, the tradeoffs between API paradigms, and the network fundamentals that affect every service you build.</p>
   </div>
 
   <div class="topic-content">
 
-    <!-- HTTP PROTOCOL -->
-    <div class="section">
+    <!-- SECTION 1: HTTP PROTOCOL -->
+    <div class="section" data-id="http-protocol">
       <div class="section-header">
-        <span class="section-icon">📡</span>
-        <h2>HTTP Protocol</h2>
+        <div class="section-header-left"><span class="section-icon">📡</span><h2>HTTP Protocol</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
-        <ul class="checklist">
+        <p>HTTP is the application-layer protocol for the web. Understanding its evolution helps you reason about what performance problems each version solves — and what its remaining constraints are.</p>
 
-          <li class="check-item" data-id="methods">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">HTTP Methods</div>
-              <div class="check-item-desc">
-                <strong>GET</strong> — safe, idempotent, cacheable. <strong>POST</strong> — not idempotent, not safe, creates resources.
-                <strong>PUT</strong> — full replace, idempotent. <strong>PATCH</strong> — partial update, not necessarily idempotent.
-                <strong>DELETE</strong> — idempotent. <strong>HEAD</strong> — like GET but no body (check headers/existence).
-                <strong>OPTIONS</strong> — returns allowed methods; used in CORS preflight.
-                Safe = no server side-effects. Idempotent = same result for N identical calls.
-              </div>
-            </div>
-          </li>
+        <h3>HTTP/1.1</h3>
+        <p>The protocol that made the modern web. Persistent connections (keep-alive) eliminated the TCP handshake overhead of HTTP/1.0's one-connection-per-request model. Pipelining (sending multiple requests before receiving responses) was added but never reliably implemented — buggy proxies broke it, so browsers kept it off by default.</p>
+        <p>The main problem: <strong>head-of-line blocking</strong>. Requests on a connection are processed in order. If the browser has 30 resources to fetch and the first response is slow, all 30 wait. Browsers worked around this by opening 6 parallel connections per domain — but that means 6 TCP handshakes, 6 TLS handshakes, and 6 flow-control states. It's a hack that worked, not a solution.</p>
 
-          <li class="check-item" data-id="status-codes">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Status Codes</div>
-              <div class="check-item-desc">
-                <strong>1xx</strong> informational (101 Switching Protocols for WebSocket upgrade).
-                <strong>2xx</strong> success: 200 OK, 201 Created, 202 Accepted (async), 204 No Content.
-                <strong>3xx</strong> redirect: 301 Permanent, 302 Temporary, 304 Not Modified (conditional GET cache hit).
-                <strong>4xx</strong> client error: 400 Bad Request, 401 Unauthenticated, 403 Forbidden, 404 Not Found, 409 Conflict, 422 Unprocessable, 429 Too Many Requests.
-                <strong>5xx</strong> server error: 500 Internal, 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="headers">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Common Headers</div>
-              <div class="check-item-desc">
-                <strong>Request:</strong> <code>Authorization</code> (Bearer token / Basic), <code>Content-Type</code> (body format),
-                <code>Accept</code> (expected response format), <code>Accept-Encoding</code> (gzip, br),
-                <code>Cookie</code>, <code>X-Request-ID</code> (tracing).
-                <strong>Response:</strong> <code>Content-Type</code>, <code>Cache-Control</code>, <code>ETag</code>,
-                <code>Location</code> (redirects/created resource), <code>Set-Cookie</code>,
-                <code>Retry-After</code> (with 429/503), <code>X-RateLimit-*</code>.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="http-versions">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">HTTP/1.1 vs HTTP/2 vs HTTP/3</div>
-              <div class="check-item-desc">
-                <strong>HTTP/1.1:</strong> persistent connections (keep-alive), pipelining (rarely used due to HOL blocking — a slow response blocks subsequent ones on the same connection), text-based.
-                <strong>HTTP/2:</strong> binary framing, <em>multiplexing</em> (many requests on one TCP connection, no HOL at app layer), HPACK header compression, server push (deprecated in Chrome). HOL still exists at TCP layer.
-                <strong>HTTP/3:</strong> QUIC over UDP, eliminates TCP-layer HOL blocking, built-in TLS 1.3, connection migration (change IP without reconnecting — great for mobile). Each stream is independent.
-              </div>
-            </div>
-          </li>
-
+        <h3>HTTP/2</h3>
+        <p>Designed to fix HTTP/1.1's performance problems without changing semantics. Key features:</p>
+        <ul>
+          <li><strong>Binary framing</strong>: replaces plaintext with a binary frame layer. Efficient to parse, no ambiguity.</li>
+          <li><strong>Multiplexing</strong>: multiple streams on a single TCP connection. Each stream is an independent request/response. No head-of-line blocking at the HTTP layer — a slow stream doesn't block others. Eliminates the need for multiple connections.</li>
+          <li><strong>Header compression (HPACK)</strong>: HTTP headers repeat heavily across requests (User-Agent, Accept, Authorization). HPACK compresses them using a static table of common headers and a dynamic table of recently-seen headers. Reduces header overhead by 80–90%.</li>
+          <li><strong>Server push</strong>: server can push resources the client will need before it asks. In theory, push CSS before the browser parses HTML and requests it. In practice, widely misused (pushing already-cached resources), and removed from Chrome's implementation in 2022. Largely a failed experiment.</li>
         </ul>
+        <p>HTTP/2 still has head-of-line blocking at the TCP layer. One packet loss stalls all streams on the connection — because TCP guarantees ordered delivery and waits for the retransmit before delivering subsequent segments.</p>
+
+        <h3>HTTP/3 &amp; QUIC</h3>
+        <p>HTTP/3 moves from TCP to QUIC — a new transport protocol built on UDP, developed by Google and standardized by IETF. QUIC solves TCP's head-of-line blocking: each stream has independent flow control, so a lost packet only stalls its own stream, not all streams.</p>
+        <p>QUIC also integrates TLS 1.3 into the handshake. A new connection to a known server takes 1 RTT (vs TCP+TLS's 2-3 RTTs). A resumed connection takes 0 RTT (the client can send data in the first packet, using a session ticket from the previous connection). QUIC also handles connection migration — when your phone switches from WiFi to cellular, the connection ID changes but the QUIC connection survives without re-handshaking. The connection is identified by a connection ID, not a 4-tuple (src IP, src port, dst IP, dst port).</p>
+
+        <h3>TLS</h3>
+        <p>TLS (Transport Layer Security) is the cryptographic layer beneath HTTPS. The handshake establishes: which cipher suite to use, exchanges certificates for authentication, and derives a shared session key for symmetric encryption. TLS 1.3 (current) simplified to 2 supported key exchange mechanisms (ECDHE only), removed weak cipher suites, and made the handshake 1 RTT (down from 2 in TLS 1.2).</p>
+        <p><strong>Certificate chain</strong>: your server cert is signed by an intermediate CA, which is signed by a root CA trusted by the OS/browser. The browser validates the chain up to a known root. If any cert in the chain is expired or revoked (OCSP), the handshake fails. Misconfigurations — like not serving the intermediate cert — cause validation failures on some clients even if your cert is valid.</p>
+        <p><strong>HSTS (HTTP Strict Transport Security)</strong>: response header that tells the browser to only connect over HTTPS for a domain for N seconds. Prevents SSL-stripping attacks. <code>Strict-Transport-Security: max-age=31536000; includeSubDomains; preload</code>. The preload directive adds you to the browser's hardcoded list — no HTTP connection is ever attempted, even on first visit.</p>
+
+        <h3>Status Codes That Matter</h3>
+        <p>Beyond the basics: <code>200 OK</code>, <code>201 Created</code> (new resource, return Location header), <code>204 No Content</code> (success, no body — for DELETE or updates with no return value), <code>301 Moved Permanently</code> (change bookmark, browsers cache indefinitely), <code>302 Found</code> / <code>307 Temporary Redirect</code> (don't cache), <code>304 Not Modified</code> (conditional GET, use cached version), <code>400 Bad Request</code> (client error, don't retry), <code>401 Unauthorized</code> (authentication required), <code>403 Forbidden</code> (authenticated but not authorized), <code>404 Not Found</code>, <code>409 Conflict</code> (optimistic lock conflict), <code>429 Too Many Requests</code> (rate limited — include Retry-After header), <code>500 Internal Server Error</code> (retry is safe if idempotent), <code>502 Bad Gateway</code> (upstream unreachable), <code>503 Service Unavailable</code> (shed load, include Retry-After), <code>504 Gateway Timeout</code>.</p>
       </div>
     </div>
 
-    <!-- API PARADIGMS -->
-    <div class="section">
+    <!-- SECTION 2: API PARADIGMS -->
+    <div class="section" data-id="api-paradigms">
       <div class="section-header">
-        <span class="section-icon">🔌</span>
-        <h2>API Paradigms</h2>
+        <div class="section-header-left"><span class="section-icon">🔌</span><h2>API Paradigms</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
-        <ul class="checklist">
+        <p>REST, GraphQL, and gRPC are the three dominant API paradigms. Each reflects different tradeoffs around performance, type safety, flexibility, and operational complexity. Knowing when to use which is a real engineering judgment.</p>
 
-          <li class="check-item" data-id="rest">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">REST</div>
-              <div class="check-item-desc">
-                An architectural <em>style</em>, not a protocol. Fielding's 6 constraints:
-                <strong>Stateless</strong> (server holds no session state — each request is self-contained),
-                <strong>Client-Server</strong>, <strong>Cacheable</strong>, <strong>Uniform Interface</strong> (resource-based URLs, standard methods, HATEOAS),
-                <strong>Layered System</strong>, <strong>Code on Demand</strong> (optional).
-                Resource URLs are nouns (<code>/users/42/orders</code>), not verbs (<code>/getOrders</code>).
-                Versioning strategies: URL path (<code>/v1/</code>), header (<code>Accept-Version</code>), query param.
-              </div>
-            </div>
-          </li>
+        <h3>REST</h3>
+        <p>REST (Representational State Transfer) is an architectural style, not a protocol. RESTful APIs use HTTP methods (GET, POST, PUT, PATCH, DELETE) to operate on resources identified by URLs. The constraints that make an API "RESTful": stateless (each request is self-contained, no server-side session), uniform interface (resources, standard methods, hypermedia as the engine of application state — HATEOAS, though almost no one implements HATEOAS), cacheable, layered system.</p>
+        <p>REST works well because: HTTP infrastructure (caches, proxies, CDNs, load balancers) understands it, it's human-readable, and it's universally supported. Its problems: over-fetching (endpoint returns 50 fields, client needs 3), under-fetching (must make multiple requests to compose a view), no strong schema enforcement without OpenAPI, and versioning is painful (v1/, v2/, or header-based versioning both have costs).</p>
+        <p>Good REST API design: nouns, not verbs in URLs (<code>/users/123/orders</code>, not <code>/getUserOrders</code>). Use HTTP methods for semantics. Return consistent error shapes. Use pagination (cursor-based, not offset). Version from the start (<code>/v1/</code>). Always use HTTPS. Document with OpenAPI/Swagger — it generates client SDKs and provides a contract.</p>
 
-          <li class="check-item" data-id="graphql">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">GraphQL</div>
-              <div class="check-item-desc">
-                Schema-first (SDL). <strong>Query</strong> (read), <strong>Mutation</strong> (write), <strong>Subscription</strong> (real-time over WebSocket).
-                Solves REST's over-fetching (too many fields) and under-fetching (multiple roundtrips).
-                <strong>N+1 problem:</strong> fetching a list then querying each item separately — fix with <em>DataLoader</em> (batches per request tick).
-                Trade-offs: harder to cache (all POSTs to one endpoint), introspection exposure, complexity.
-                Persisted queries help caching. Use for client-driven data needs; overkill for simple APIs.
-              </div>
-            </div>
-          </li>
+        <h3>GraphQL</h3>
+        <p>GraphQL is a query language and runtime for APIs. The client specifies exactly what data it needs; the server returns exactly that. One endpoint, flexible queries. Solves REST's over/under-fetching problems.</p>
+        <pre><code>query {
+  user(id: "123") {
+    name
+    email
+    orders(last: 5) {
+      id
+      total
+      items { productName quantity }
+    }
+  }
+}</code></pre>
+        <p>Benefits: no over-fetching, no under-fetching, strong schema (the schema is a contract between client and server, introspectable), great for clients with variable data needs (mobile vs web), and easy to add new fields without versioning. Tradeoffs: N+1 query problem is severe (each <code>orders</code> field resolver runs a query — 100 users = 100 queries, unless you use DataLoader for batching), complex queries can be expensive (no easy per-endpoint rate limiting — must use query complexity analysis), HTTP caching is harder (all queries POST to one endpoint), and the learning curve is real. GraphQL is a great fit for: BFF layer aggregating multiple services, client-driven applications with diverse data needs. It's overkill for: simple CRUD APIs or internal service-to-service calls.</p>
 
-          <li class="check-item" data-id="grpc">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">gRPC</div>
-              <div class="check-item-desc">
-                Uses <strong>Protocol Buffers</strong> (strongly-typed IDL + binary serialization — much smaller than JSON).
-                Runs over HTTP/2. Code generated from <code>.proto</code> files in any supported language.
-                4 streaming modes: Unary (1 req → 1 resp), Server Streaming, Client Streaming, Bidirectional Streaming.
-                ~5–7× smaller payload and faster than REST+JSON. Ideal for internal microservice communication.
-                Harder to debug (binary), requires HTTP/2, limited browser support (use gRPC-Web).
-              </div>
-            </div>
-          </li>
+        <h3>gRPC</h3>
+        <p>gRPC (Google Remote Procedure Call) uses Protocol Buffers (protobuf) for serialization and HTTP/2 for transport. You define services and message types in a <code>.proto</code> file; the gRPC toolchain generates client and server stubs in your language.</p>
+        <pre><code>// user.proto
+service UserService {
+  rpc GetUser(GetUserRequest) returns (User);
+  rpc ListUsers(ListUsersRequest) returns (stream User);
+}
+message User {
+  string id = 1;
+  string name = 2;
+  string email = 3;
+}</code></pre>
+        <p>Advantages: protobuf is 3-10× smaller than JSON and faster to serialize/deserialize, HTTP/2 multiplexing enables streaming (server streaming, client streaming, bidirectional streaming), the generated stubs are strongly typed in every language, and performance is excellent. Tradeoffs: protobuf is not human-readable (debugging requires tooling), browser support requires a grpc-web proxy (gRPC uses HTTP/2 trailers which browsers can't access directly), and schema changes require regenerating code. gRPC is the default choice for: internal service-to-service communication, high-throughput microservices, mobile backends where bandwidth matters.</p>
 
-          <li class="check-item" data-id="websockets">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">WebSockets</div>
-              <div class="check-item-desc">
-                HTTP upgrade handshake (<code>Upgrade: websocket</code>, 101 response) establishes a persistent full-duplex TCP connection. Low latency, bidirectional.
-                Use for: live chat, collaborative editing, live dashboards, multiplayer games.
-                <strong>Scaling challenge:</strong> connections are stateful, so horizontal scaling needs sticky sessions <em>or</em> a pub/sub broker (Redis Pub/Sub, Kafka) so any server can fan out to all clients.
-                <code>ws://</code> (plain) / <code>wss://</code> (TLS). Consider SSE (Server-Sent Events) for server→client-only streams — simpler and HTTP/2-native.
-              </div>
-            </div>
-          </li>
+        <figure class="diagram">
+          <img src="../images/http-networking/rpc.png" alt="RPC (Remote Procedure Call) flow: client stub serializes call, sends over network, server stub deserializes and executes">
+          <figcaption>RPC fundamentals. The client calls a local stub as if calling a local function; the stub handles serialization, network transport, and deserialization. The developer doesn't manage raw HTTP — they call methods on a generated client object.</figcaption>
+        </figure>
 
-        </ul>
+        <figure class="diagram">
+          <img src="../images/http-networking/grpc.png" alt="gRPC architecture: protobuf IDL generates stubs for client and server, communicates over HTTP/2">
+          <figcaption>gRPC uses Protocol Buffers as the IDL and serialization format, and HTTP/2 as the transport. The toolchain generates type-safe client and server stubs from the .proto definition, enabling streaming and bidirectional communication.</figcaption>
+        </figure>
+
+        <h3>WebSockets</h3>
+        <p>WebSockets provide full-duplex, persistent connections between client and server. After an HTTP upgrade handshake, the connection becomes a TCP stream — either side can send messages at any time. Use for: real-time features (chat, live dashboards, collaborative editing, live game state). Not appropriate for: simple request/response patterns (the overhead of a persistent connection isn't worth it) or fire-and-forget notifications (use Server-Sent Events or push notifications instead). WebSocket connections are stateful — horizontal scaling requires sticky sessions or a pub/sub layer (Redis) to broadcast messages across server instances.</p>
       </div>
     </div>
 
-    <!-- NETWORK FUNDAMENTALS -->
-    <div class="section">
+    <!-- SECTION 3: NETWORK FUNDAMENTALS -->
+    <div class="section" data-id="network-fundamentals">
       <div class="section-header">
-        <span class="section-icon">🔒</span>
-        <h2>Network Fundamentals</h2>
+        <div class="section-header-left"><span class="section-icon">🔗</span><h2>Network Fundamentals</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
-        <ul class="checklist">
+        <p>You don't need to implement TCP, but you need to understand its behavior to reason about latency, connection costs, and why certain performance patterns work.</p>
 
-          <li class="check-item" data-id="tls">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">TLS Handshake</div>
-              <div class="check-item-desc">
-                TLS 1.3 (1-RTT): ClientHello (supported ciphers, key share) → ServerHello (chosen cipher, key share, certificate) → client verifies cert → Finished (both sides derive session keys).
-                <strong>Perfect Forward Secrecy (PFS):</strong> ephemeral keys per session — compromising the server's private key later can't decrypt past sessions.
-                Certificate chain: leaf cert → intermediate CA → root CA (trusted by OS/browser).
-                <strong>HSTS</strong> (<code>Strict-Transport-Security</code>): browser always uses HTTPS for the domain.
-                Let's Encrypt: free, automated DV certs via ACME protocol.
-              </div>
-            </div>
-          </li>
+        <h3>TCP</h3>
+        <p>TCP is a reliable, ordered, connection-oriented transport protocol. Before sending data, it establishes a connection with a 3-way handshake: SYN → SYN-ACK → ACK. This costs 1 RTT. For HTTPS: add 1-2 RTTs for TLS. So before your first byte of actual data, a new connection to a server incurs 2–3 RTTs — up to 300ms from across continents.</p>
+        <p><strong>TCP slow start</strong>: a new connection doesn't immediately use all available bandwidth. TCP starts with a small congestion window and doubles it each RTT until packet loss occurs, then backs off. For small responses (HTML documents, API responses), the connection may never leave slow start — the transfer completes before the window grows large enough to matter. This is why HTTP/2 multiplexing over a single warmed-up connection is faster than multiple HTTP/1.1 connections: the existing connection has a large window.</p>
+        <p><strong>TIME_WAIT</strong>: after a TCP connection closes, the port enters TIME_WAIT for 2 MSL (~60s) to handle late-arriving packets. Under high connection churn, servers can exhaust ephemeral ports. Solution: keep-alive connections (reuse existing), or increase the ephemeral port range.</p>
 
-          <li class="check-item" data-id="dns">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">DNS</div>
-              <div class="check-item-desc">
-                Resolution chain: OS cache → stub resolver → recursive resolver (e.g. 8.8.8.8) → root nameserver → TLD nameserver (.com) → authoritative nameserver → answer.
-                Record types: <strong>A</strong> (IPv4), <strong>AAAA</strong> (IPv6), <strong>CNAME</strong> (alias, can't be at root/apex),
-                <strong>MX</strong> (mail), <strong>TXT</strong> (SPF/DKIM/verification), <strong>NS</strong> (nameservers), <strong>SOA</strong> (zone metadata).
-                TTL controls caching — lower TTL = faster propagation but more DNS load. Negative TTL caches NXDOMAIN.
-              </div>
-            </div>
-          </li>
+        <h3>DNS</h3>
+        <p>DNS resolves hostnames to IP addresses. The lookup chain: local cache → OS cache → recursive resolver (your ISP or 8.8.8.8) → root nameservers → TLD nameservers → authoritative nameservers. Each step adds latency. TTL controls how long results are cached — short TTLs mean more DNS lookups but faster failover during incidents. Long TTLs mean DNS changes take longer to propagate.</p>
 
-          <li class="check-item" data-id="tcp-udp">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">TCP vs UDP &amp; OSI Model</div>
-              <div class="check-item-desc">
-                <strong>TCP:</strong> connection-oriented (3-way handshake: SYN → SYN-ACK → ACK), reliable delivery (retransmits), ordered, flow control (sliding window), congestion control (slow start, AIMD).
-                <strong>UDP:</strong> connectionless, no guarantee of delivery/order, low overhead — good for DNS, video streaming, games, QUIC.
-                <strong>OSI 7 layers</strong> (mnemonic: Please Do Not Throw Sausage Pizza Away): Physical, Data Link, Network, Transport, Session, Presentation, Application.
-                <strong>TCP/IP 4 layers:</strong> Network Access, Internet (IP), Transport (TCP/UDP), Application (HTTP).
-              </div>
-            </div>
-          </li>
+        <figure class="diagram">
+          <img src="../images/http-networking/dns.jpg" alt="DNS resolution flow: browser → local cache → recursive resolver → root → TLD → authoritative nameserver">
+          <figcaption>DNS resolution chain. Each hop adds latency; results are cached at each level for the TTL duration. Lower TTL before migrations; raise it after propagation is confirmed.</figcaption>
+        </figure>
+        <p><strong>Practical implications</strong>: when you change a DNS record, old records are cached for up to the TTL duration — lower TTL before a planned migration, raise it after. DNS lookups add latency to first requests (before the result is cached). Browsers parallelize DNS lookups for resources on different domains. HTTP/2 and connection reuse reduce the cost of DNS — if everything is on one domain, there's only one lookup. CDNs use DNS as a traffic routing mechanism — returning different IPs based on the resolver's location (latency-based routing).</p>
 
-        </ul>
+        <h3>Connection Pooling</h3>
+        <p>Creating a TCP connection (and TLS handshake) is expensive — 2-3 RTTs. Every database driver, HTTP client, and gRPC client should use connection pooling. A pool maintains a set of open connections and reuses them across requests. For databases: pool size should be roughly the number of CPU cores on the DB server — larger pools don't help (DB cores are the bottleneck) and increase memory overhead. PgBouncer pools connections to Postgres at the connection level, allowing many app connections to multiplex over fewer DB connections (Postgres has a per-connection overhead of ~5MB).</p>
+
+        <h3>Latency Numbers You Should Know</h3>
+        <table>
+          <tr><th>Operation</th><th>Approximate Latency</th></tr>
+          <tr><td>L1 cache reference</td><td>~0.5 ns</td></tr>
+          <tr><td>L2 cache reference</td><td>~7 ns</td></tr>
+          <tr><td>Main memory (RAM) read</td><td>~100 ns</td></tr>
+          <tr><td>SSD random read</td><td>~100 µs</td></tr>
+          <tr><td>Round trip within same datacenter</td><td>~0.5 ms</td></tr>
+          <tr><td>Redis GET (same datacenter)</td><td>~0.5–1 ms</td></tr>
+          <tr><td>Postgres query (simple, indexed)</td><td>~1–5 ms</td></tr>
+          <tr><td>Round trip US East ↔ US West</td><td>~60 ms</td></tr>
+          <tr><td>Round trip US ↔ Europe</td><td>~100–150 ms</td></tr>
+          <tr><td>Round trip US ↔ Asia</td><td>~200–300 ms</td></tr>
+          <tr><td>HDD seek</td><td>~10 ms</td></tr>
+        </table>
+        <p>Internalize these. They let you quickly sanity-check architectures. If a user-facing request makes 10 sequential DB queries, the minimum latency is 50ms before you add any application logic. If your users are in Asia and your origin is US East, you've already spent 300ms on the round-trip before serving a single byte.</p>
       </div>
     </div>
 
-    <!-- Q&A -->
-    <div class="section">
+    <!-- GO DEEPER -->
+    <div class="section" style="border-style:dashed;">
       <div class="section-header">
-        <span class="section-icon">🧠</span>
-        <h2>Quick Review</h2>
-      </div>
-      <div class="section-body">
-
-        <details class="qa">
-          <summary>Why can't you cache POST requests but you can cache GET requests?</summary>
-          <div class="qa-body">
-            <p>GET is defined as <strong>safe</strong> (no side effects) and <strong>idempotent</strong>, so caches (browser, CDN, proxy) can safely store and reuse the response. POST is neither safe nor idempotent — the same request sent twice could create two resources, so intermediate caches must not store POST responses by default (though the response <em>can</em> include <code>Cache-Control</code> to allow it explicitly).</p>
-          </div>
-        </details>
-
-        <details class="qa">
-          <summary>What exactly does HTTP/2 multiplexing solve?</summary>
-          <div class="qa-body">
-            <p>HTTP/1.1 suffers from <strong>head-of-line (HOL) blocking at the application layer</strong>: if a large resource is in flight on a connection, subsequent requests on that same connection have to wait. Browsers work around this by opening 6–8 parallel connections per origin — wasteful.</p>
-            <p>HTTP/2 multiplexing lets many independent <em>streams</em> share a single TCP connection. A slow stream doesn't block others. This eliminates the need for domain sharding and request bundling hacks. However, HOL blocking still exists at the <strong>TCP layer</strong> — a lost packet stalls all streams, which is why HTTP/3 (QUIC/UDP) was needed.</p>
-          </div>
-        </details>
-
-        <details class="qa">
-          <summary>What is the CORS preflight and when does it happen?</summary>
-          <div class="qa-body">
-            <p>The browser sends an <strong>OPTIONS preflight request</strong> before the actual cross-origin request when any of these are true:</p>
-            <ul>
-              <li>Method is not GET, POST, or HEAD</li>
-              <li>Content-Type is not <code>application/x-www-form-urlencoded</code>, <code>multipart/form-data</code>, or <code>text/plain</code></li>
-              <li>Custom headers are included (e.g. <code>Authorization</code>)</li>
-            </ul>
-            <p>The preflight checks whether the server allows the actual request. The server responds with <code>Access-Control-Allow-*</code> headers. <code>Access-Control-Max-Age</code> caches the preflight result to avoid sending it every time.</p>
-          </div>
-        </details>
-
-        <details class="qa">
-          <summary>When would you choose gRPC over REST?</summary>
-          <div class="qa-body">
-            <p>gRPC is a strong choice for <strong>internal service-to-service communication</strong> where you control both ends: lower latency (binary protobuf vs JSON), strict contracts (proto schema = compile-time type safety), streaming support, and generated client code. The 5–7× smaller payload matters at scale.</p>
-            <p>Stick with REST for <strong>public APIs</strong>: easier discoverability, universal tooling, human-readable, no special library needed. REST also wins when browser clients are the primary consumer (gRPC requires gRPC-Web + a proxy layer).</p>
-          </div>
-        </details>
-
-        <details class="qa">
-          <summary>What's the difference between 401 and 403?</summary>
-          <div class="qa-body">
-            <p><strong>401 Unauthorized</strong> means <em>unauthenticated</em> — the server doesn't know who you are. The response must include a <code>WWW-Authenticate</code> header indicating how to authenticate. Despite the name, it's about identity, not permission.</p>
-            <p><strong>403 Forbidden</strong> means <em>unauthorized</em> — the server knows who you are but you don't have permission to access the resource. No authentication challenge is sent.</p>
-          </div>
-        </details>
-
-      </div>
-    </div>
-
-    <!-- RESOURCES -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-icon">📚</span>
-        <h2>Go Deeper</h2>
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
       </div>
       <div class="section-body">
         <div class="resource-list">
-
-          <div class="resource">
-            <span class="resource-type blog">blog</span>
-            <div class="resource-content">
-              <div class="resource-title">High Performance Browser Networking</div>
-              <div class="resource-author">Ilya Grigorik — free at hpbn.co</div>
-              <div class="resource-desc">The best book on networking for application developers. Covers TCP, UDP, TLS, HTTP/1.1, HTTP/2, WebRTC, and WebSockets with practical performance implications. Chapters 1–4 (networking primer) and 9–13 (HTTP) are most relevant.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type blog">blog</span>
-            <div class="resource-content">
-              <div class="resource-title">How HTTPS Works</div>
-              <div class="resource-author">howhttps.works</div>
-              <div class="resource-desc">Visual, comic-style walkthrough of the TLS handshake and certificate chain. Best introduction to HTTPS mechanics before reading the more technical material.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type docs">docs</span>
-            <div class="resource-content">
-              <div class="resource-title">MDN — HTTP Reference</div>
-              <div class="resource-author">developer.mozilla.org/docs/Web/HTTP</div>
-              <div class="resource-desc">Authoritative reference for HTTP methods, status codes, headers, and CORS. The CORS page in particular is the clearest explanation of preflight and Access-Control headers available.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type blog">blog</span>
-            <div class="resource-content">
-              <div class="resource-title">gRPC vs REST: Understanding gRPC, OpenAPI and REST</div>
-              <div class="resource-author">Google Cloud Blog</div>
-              <div class="resource-desc">Google's own comparison of the paradigms with concrete use-case guidance. Clear and unbiased despite the source.</div>
-            </div>
-          </div>
-
+          <div class="resource"><span class="resource-type book">book</span><div class="resource-content"><div class="resource-title">High Performance Browser Networking</div><div class="resource-author">Ilya Grigorik — O'Reilly (free at hpbn.co)</div><div class="resource-desc">The definitive reference for HTTP, TCP, TLS, WebSockets, and HTTP/2. Free online. Chapters 1–4 on TCP and TLS are foundational. Chapter 12 on HTTP/2 is the best explanation of multiplexing and its tradeoffs.</div></div></div>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">MDN HTTP Documentation</div><div class="resource-author">developer.mozilla.org/en-US/docs/Web/HTTP</div><div class="resource-desc">Complete reference for HTTP messages, methods, headers, status codes, and caching. The guides section covers connections, cookies, CORS, and CSP with enough depth to be actionable.</div></div></div>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">gRPC Documentation — Core Concepts</div><div class="resource-author">grpc.io/docs/what-is-grpc/core-concepts</div><div class="resource-desc">Start with core concepts (service definition, RPC lifecycle, streaming types), then the Getting Started guide in your language. The protocol buffer tutorial is a prerequisite.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Latency Numbers Every Programmer Should Know</div><div class="resource-author">github.com/sirupsen/napkin-math</div><div class="resource-desc">Regularly-updated compilation of system latency numbers with back-of-napkin estimation techniques. Essential for system design discussions.</div></div></div>
         </div>
       </div>
     </div>
 
-  </div><!-- /topic-content -->
+  </div>
 </main>
 
 <footer class="site-footer">
   <div class="module-nav">
     <a href="caching.html">← Caching</a>
-    <a href="../index.html" class="center">All modules</a>
-    <a href="security.html">Security →</a>
+    <a href="../backend.html" class="center">All modules</a>
+    <a href="api-design.html">API Design →</a>
   </div>
 </footer>
 
 <script src="../js/app.js"></script>
 <script>
-  initChecklist('http-networking');
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('../sw.js').catch(() => {});
-  }
+  initSections('http-networking');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
 </script>
 </body>
 </html>

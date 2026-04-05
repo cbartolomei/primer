@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Go — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <a href="index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="overall-progress-bar" style="width:0%"></div>
+      </div>
+      <div class="progress-label" id="overall-progress-label">loading…</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>Go</h1>
+    <p class="subtitle">The Go programming language from first principles. Types, concurrency, patterns, and the standard library — explained clearly and built to stick.</p>
+    <div class="stat-row">
+      <div class="stat">
+        <div class="stat-value" id="stat-pct">0%</div>
+        <div class="stat-label">Overall</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-completed">0</div>
+        <div class="stat-label">Concepts covered</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-topics">0 / 3</div>
+        <div class="stat-label">Modules started</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="topic-grid"></div>
+
+  <div style="margin-top:2.5rem;padding-top:2rem;border-top:1px solid rgba(255,255,255,0.06);">
+    <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#5c6370;margin-bottom:1rem;">Reference Docs</div>
+    <a href="docs.html?file=effective_go" style="display:flex;align-items:center;gap:0.75rem;padding:0.9rem 1.1rem;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;text-decoration:none;color:inherit;transition:background 0.15s,border-color 0.15s;" onmouseover="this.style.background='rgba(124,99,245,0.07)';this.style.borderColor='rgba(124,99,245,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.03)';this.style.borderColor='rgba(255,255,255,0.08)'">
+      <span style="font-size:1.3rem;">📖</span>
+      <div>
+        <div style="font-weight:600;font-size:0.9rem;color:#c8c0f8;margin-bottom:0.15rem;">Effective Go</div>
+        <div style="font-size:0.78rem;color:#5c6370;">The official Go idiom guide — naming, formatting, composition, concurrency patterns, and more. go.dev/doc/effective_go</div>
+      </div>
+      <span style="margin-left:auto;color:#5c6370;font-size:0.8rem;">→</span>
+    </a>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <button onclick="resetProgress()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:0.75rem;font-family:inherit;">reset progress</button>
+</footer>
+
+<script src="./js/app.js"></script>
+<script>
+  initDashboard(GO_TOPICS, GO_TIERS);
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>

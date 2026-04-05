@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Go Patterns &amp; Idioms — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="inner">
+    <a href="../go.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 4 sections understood</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>🎯 Patterns &amp; Idioms</h1>
+    <p class="subtitle">The conventions and patterns that distinguish Go written by an expert from Go written by someone who just learned the syntax. Learn to think in Go.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <div class="section" data-id="interfaces-practice">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔌</span><h2>Interfaces in Practice</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Interfaces are Go's most powerful tool for writing flexible, testable code. The key insight: <strong>define interfaces where you use them, not where you implement them</strong>. A caller defines the interface that describes exactly the behavior it needs — and any concrete type that has those methods satisfies it automatically.</p>
+
+        <h3>Small Interfaces</h3>
+        <p>The most influential interfaces in the standard library are tiny — often just one method. This is deliberate: small interfaces are easy to implement, easy to mock, and compose naturally:</p>
+        <pre><code>// From the standard library — one method each
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+type Stringer interface {
+    String() string
+}
+
+type error interface {
+    Error() string
+}</code></pre>
+        <p>Anything that can be read satisfies <code>io.Reader</code>: a file, a network connection, a byte buffer, a gzip stream, a test string. Functions that accept <code>io.Reader</code> work with all of them — no changes needed when you swap a file for a network socket. This is the power of Go interfaces in practice.</p>
+        <pre><code>// Works with any Reader — file, HTTP body, string, stdin, gzip...
+func countLines(r io.Reader) (int, error) {
+    scanner := bufio.NewScanner(r)
+    count := 0
+    for scanner.Scan() {
+        count++
+    }
+    return count, scanner.Err()
+}
+
+// Call with a file
+f, _ := os.Open("data.txt")
+defer f.Close()
+n, _ := countLines(f)
+
+// Call with an HTTP response body
+resp, _ := http.Get(url)
+defer resp.Body.Close()
+n, _ = countLines(resp.Body)
+
+// Call in a test with a string
+n, _ = countLines(strings.NewReader("line1\nline2\nline3"))</code></pre>
+
+        <h3>Accept Interfaces, Return Structs</h3>
+        <p>The principle: function parameters should be interfaces (broad, flexible), function return values should be concrete types (specific, useful). Returning an interface forces callers to type-assert to access concrete methods — returning a struct lets them use everything directly:</p>
+        <pre><code>// GOOD — accepts an interface, returns a concrete type
+func NewCache(store Storage) *Cache {
+    return &Cache{store: store}
+}
+
+// AVOID — returning an interface hides what the caller gets
+func NewCache(store Storage) CacheInterface {
+    return &Cache{store: store}
+}</code></pre>
+        <p>The exception: <code>error</code>. Always return the <code>error</code> interface, not a concrete error type — callers should use <code>errors.Is</code>/<code>errors.As</code> for inspection.</p>
+
+        <h3>The Empty Interface</h3>
+        <p><code>interface{}</code> (or <code>any</code> since Go 1.18) has no methods — every type satisfies it. Before generics, it was the only way to write functions that work with any type. You lose type safety and pay for type assertions at runtime:</p>
+        <pre><code>// Before generics — any loses type information
+func Map(s []interface{}, fn func(interface{}) interface{}) []interface{} { ... }
+
+// With generics (Go 1.18+) — type-safe, zero overhead
+func Map[T, U any](s []T, fn func(T) U) []U {
+    result := make([]U, len(s))
+    for i, v := range s {
+        result[i] = fn(v)
+    }
+    return result
+}
+
+doubled := Map([]int{1, 2, 3}, func(n int) int { return n * 2 })</code></pre>
+        <p>In new code, prefer generics over <code>any</code> for containers and utilities. Keep <code>any</code> for cases where the type truly varies at runtime (JSON unmarshaling into unknown structure, plugin systems).</p>
+
+        <h3>Interfaces for Testing</h3>
+        <p>The most practical use of interfaces: replace real dependencies in tests with simple fakes:</p>
+        <pre><code>// Define what the service needs — not the full DB client, just what's used
+type UserRepository interface {
+    GetByID(ctx context.Context, id int) (*User, error)
+    Save(ctx context.Context, u *User) error
+}
+
+type UserService struct {
+    repo UserRepository
+}
+
+// In tests — implement UserRepository with a fake
+type fakeRepo struct {
+    users map[int]*User
+}
+
+func (f *fakeRepo) GetByID(_ context.Context, id int) (*User, error) {
+    u, ok := f.users[id]
+    if !ok {
+        return nil, ErrNotFound
+    }
+    return u, nil
+}
+
+func (f *fakeRepo) Save(_ context.Context, u *User) error {
+    f.users[u.ID] = u
+    return nil
+}
+
+func TestPromoteUser(t *testing.T) {
+    repo := &fakeRepo{users: map[int]*User{1: {ID: 1, Name: "Alice"}}}
+    svc := UserService{repo: repo}
+    // test against the fake
+}</code></pre>
+        <p>Notice: the interface is defined in the <code>UserService</code>'s package, not in a "repository" package. The service defines what it needs. Any type that satisfies that interface works.</p>
+      </div>
+    </div>
+
+    <div class="section" data-id="standard-library">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📖</span><h2>Standard Library</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go's standard library covers a vast amount of ground with a consistently high-quality API. Knowing it well means you reach for a third-party dependency less often — and when you do, you understand what it's built on top of.</p>
+
+        <h3>net/http: Building Servers</h3>
+        <pre><code>// Handler interface — implement this to handle HTTP requests
+type Handler interface {
+    ServeHTTP(ResponseWriter, *Request)
+}
+
+// HandlerFunc — adapter to use a function as a Handler
+http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+    // r.Method, r.URL, r.Header, r.Body
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusOK)
+    fmt.Fprintln(w, `{"status":"ok"}`)
+})
+
+// Use a ServeMux for routing
+mux := http.NewServeMux()
+mux.HandleFunc("GET /users/{id}", getUser) // Go 1.22+ method+path patterns
+mux.Handle("/static/", http.FileServer(http.Dir("static")))
+
+// Configure the server — don't use http.ListenAndServe in production
+server := &http.Server{
+    Addr:         ":8080",
+    Handler:      mux,
+    ReadTimeout:  5 * time.Second,
+    WriteTimeout: 10 * time.Second,
+    IdleTimeout:  120 * time.Second,
+}
+log.Fatal(server.ListenAndServe())</code></pre>
+        <div class="note note-warning">
+          Always set timeouts on <code>http.Server</code>. The zero value means no timeout — a slow or malicious client can hold open a connection forever, exhausting your goroutine pool.
+        </div>
+
+        <h3>net/http: Making Requests</h3>
+        <pre><code>// Always use a client with timeout — default client has no timeout
+client := &http.Client{Timeout: 10 * time.Second}
+
+req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+if err != nil {
+    return err
+}
+req.Header.Set("Authorization", "Bearer "+token)
+
+resp, err := client.Do(req)
+if err != nil {
+    return err
+}
+defer resp.Body.Close() // ALWAYS close the body
+
+if resp.StatusCode != http.StatusOK {
+    return fmt.Errorf("unexpected status: %d", resp.StatusCode)
+}
+
+body, err := io.ReadAll(resp.Body)</code></pre>
+
+        <h3>encoding/json</h3>
+        <pre><code>type User struct {
+    ID    int    `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email,omitempty"` // omit if empty
+    pass  string // unexported — never marshaled
+}
+
+// Marshal: Go → JSON
+data, err := json.Marshal(user)
+
+// Unmarshal: JSON → Go
+var u User
+err = json.Unmarshal(data, &u)
+
+// Stream encoding/decoding (preferred for HTTP)
+func handleCreate(w http.ResponseWriter, r *http.Request) {
+    var req CreateUserRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        http.Error(w, "bad request", 400)
+        return
+    }
+    // ...
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(response)
+}
+
+// Flexible JSON: interface{} or json.RawMessage
+var raw map[string]json.RawMessage
+json.Unmarshal(data, &raw)
+// raw["name"] is still JSON bytes — defer decoding</code></pre>
+
+        <h3>io &amp; bufio</h3>
+        <pre><code>// io.Reader / io.Writer are the foundation of all I/O
+
+// Copy between reader and writer
+n, err := io.Copy(dst, src)         // copies until EOF
+n, err = io.CopyN(dst, src, 1024)   // copies exactly N bytes
+
+// Read all
+data, err := io.ReadAll(r)          // read entire reader into memory
+
+// Discard
+n, err = io.Copy(io.Discard, resp.Body) // drain body
+
+// bufio wraps Reader/Writer with buffering
+scanner := bufio.NewScanner(r)
+for scanner.Scan() {
+    line := scanner.Text()
+}
+
+writer := bufio.NewWriter(w)
+fmt.Fprintln(writer, "hello")
+writer.Flush() // don't forget to flush!</code></pre>
+
+        <h3>time</h3>
+        <pre><code>now := time.Now()
+t := time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC)
+
+// Formatting — Go uses a reference time: Mon Jan 2 15:04:05 MST 2006
+t.Format("2006-01-02T15:04:05Z07:00") // ISO 8601
+t.Format(time.RFC3339)                 // same
+
+// Parse
+parsed, err := time.Parse(time.RFC3339, "2024-01-15T10:30:00Z")
+
+// Duration arithmetic
+deadline := time.Now().Add(5 * time.Minute)
+elapsed := time.Since(start)
+
+// Timer / Ticker
+timer := time.NewTimer(5 * time.Second)
+&lt;-timer.C // blocks for 5 seconds
+timer.Stop()
+
+ticker := time.NewTicker(time.Second)
+defer ticker.Stop()
+for t := range ticker.C {
+    // runs every second
+    _ = t
+}</code></pre>
+
+        <h3>os &amp; filepath</h3>
+        <pre><code>// Environment
+val := os.Getenv("PORT")
+os.Setenv("KEY", "value")
+
+// Files
+f, err := os.Open("file.txt")          // read-only
+f, err  = os.Create("out.txt")          // create/truncate, write
+f, err  = os.OpenFile("log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+
+// Quick reads/writes
+data, err := os.ReadFile("file.txt")
+err = os.WriteFile("out.txt", data, 0644)
+
+// Path operations
+path := filepath.Join("dir", "sub", "file.txt") // OS-aware separator
+dir := filepath.Dir(path)
+base := filepath.Base(path)
+ext := filepath.Ext(path)
+
+// Walk a directory tree
+filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+    if d.IsDir() { return nil }
+    fmt.Println(path)
+    return nil
+})</code></pre>
+      </div>
+    </div>
+
+    <div class="section" data-id="testing">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🧪</span><h2>Testing</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go's built-in testing package is simple but powerful. No external test runner needed — <code>go test</code> discovers and runs all tests. The community has converged on table-driven tests as the dominant style.</p>
+
+        <h3>Basic Tests</h3>
+        <pre><code>// File: calculator_test.go
+package calculator
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+    result := Add(2, 3)
+    if result != 5 {
+        t.Errorf("Add(2, 3) = %d; want 5", result)
+    }
+}
+
+// t.Fatal stops the test immediately — use when subsequent code would panic
+// t.Error marks failure but continues
+// t.Logf logs only when test fails or -v flag is used</code></pre>
+
+        <h3>Table-Driven Tests</h3>
+        <p>The idiomatic Go pattern: define test cases as a slice of structs, range over them. One test function covers all cases, failure messages include the case name:</p>
+        <pre><code>func TestDivide(t *testing.T) {
+    tests := []struct {
+        name    string
+        a, b    float64
+        want    float64
+        wantErr bool
+    }{
+        {"normal", 10, 2, 5, false},
+        {"negative divisor", 10, -2, -5, false},
+        {"divide by zero", 10, 0, 0, true},
+        {"zero numerator", 0, 5, 0, false},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            got, err := Divide(tt.a, tt.b)
+            if (err != nil) != tt.wantErr {
+                t.Errorf("wantErr=%v but got err=%v", tt.wantErr, err)
+                return
+            }
+            if !tt.wantErr && got != tt.want {
+                t.Errorf("Divide(%v, %v) = %v; want %v", tt.a, tt.b, got, tt.want)
+            }
+        })
+    }
+}</code></pre>
+        <p><code>t.Run</code> creates a subtest with its own name. Run a specific subtest: <code>go test -run TestDivide/divide_by_zero</code>. Failures show the exact case that failed.</p>
+
+        <h3>Testing HTTP Handlers</h3>
+        <pre><code>import (
+    "net/http"
+    "net/http/httptest"
+    "testing"
+)
+
+func TestGetUser(t *testing.T) {
+    // httptest.NewRecorder captures the response
+    w := httptest.NewRecorder()
+    r := httptest.NewRequest("GET", "/users/1", nil)
+
+    handler := &UserHandler{repo: &fakeRepo{...}}
+    handler.GetUser(w, r)
+
+    resp := w.Result()
+    if resp.StatusCode != http.StatusOK {
+        t.Errorf("got %d; want 200", resp.StatusCode)
+    }
+    // decode w.Body and assert
+}</code></pre>
+
+        <h3>Benchmarks</h3>
+        <pre><code>// File: parser_test.go
+func BenchmarkParse(b *testing.B) {
+    data := generateTestData()
+
+    b.ResetTimer() // exclude setup from measurement
+    for i := 0; i &lt; b.N; i++ { // b.N is set by the testing framework
+        Parse(data)
+    }
+}
+
+// Run benchmarks (skipped by default)
+// go test -bench=. -benchmem
+// BenchmarkParse-8    1000000    1243 ns/op    256 B/op    4 allocs/op</code></pre>
+
+        <h3>Test Helpers &amp; cleanup</h3>
+        <pre><code>// t.Helper() marks a function as a test helper
+// error messages show the caller's line, not the helper's
+func assertEqual(t *testing.T, got, want interface{}) {
+    t.Helper()
+    if got != want {
+        t.Errorf("got %v; want %v", got, want)
+    }
+}
+
+// t.Cleanup registers a cleanup function — runs after the test
+func TestWithTempFile(t *testing.T) {
+    f, err := os.CreateTemp("", "test-*")
+    if err != nil {
+        t.Fatal(err)
+    }
+    t.Cleanup(func() { os.Remove(f.Name()) })
+    // test with f...
+}
+
+// t.TempDir() creates a temp dir that's automatically removed
+dir := t.TempDir()</code></pre>
+
+        <h3>Testify</h3>
+        <p>The <code>github.com/stretchr/testify</code> package is used in most Go codebases for more expressive assertions:</p>
+        <pre><code>import (
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
+)
+
+func TestUser(t *testing.T) {
+    user, err := GetUser(1)
+
+    require.NoError(t, err)          // like t.Fatal — stops test on failure
+    require.NotNil(t, user)
+
+    assert.Equal(t, "Alice", user.Name) // t.Error — continues on failure
+    assert.True(t, user.Active)
+    assert.ErrorIs(t, err, ErrNotFound) // checks error chain
+}</code></pre>
+        <p>Use <code>require</code> when failure makes subsequent assertions meaningless (nil pointer, wrong type). Use <code>assert</code> when you want to see all failures in one run.</p>
+      </div>
+    </div>
+
+    <div class="section" data-id="idiomatic-go">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🎨</span><h2>Idiomatic Go</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Idiomatic Go is not about stylistic preference — it's about the patterns and conventions the community has converged on because they make Go code easier to read, maintain, and extend. Reading code written this way feels natural; reading code written against these conventions feels labored.</p>
+
+        <h3>Naming Conventions</h3>
+        <p>Go uses shorter names than most languages. This is not laziness — it's a considered convention:</p>
+        <ul>
+          <li><strong>Single-letter names for short-lived variables</strong>: <code>i</code>, <code>j</code>, <code>k</code> for loop indices; <code>r</code> for reader, <code>w</code> for writer, <code>n</code> for count, <code>b</code> for byte slice</li>
+          <li><strong>Short, descriptive names at package scope</strong>: not <code>userRepository</code>, just <code>repo</code>; not <code>httpRequestHandler</code>, just <code>handler</code></li>
+          <li><strong>Acronyms stay all-caps</strong>: <code>URL</code>, <code>HTTP</code>, <code>ID</code>, <code>API</code>, not <code>Url</code>, <code>Http</code>, <code>Id</code></li>
+          <li><strong>Interface names</strong>: single-method interfaces are named by the method + <code>-er</code>: <code>Reader</code>, <code>Writer</code>, <code>Stringer</code>, <code>Handler</code></li>
+          <li><strong>Package names</strong>: lowercase, single word where possible, noun. Not <code>utils</code>, not <code>helpers</code>, not <code>common</code> — these names say nothing about what the package does</li>
+          <li><strong>Receiver names</strong>: short, typically one or two characters, consistent across all methods of the type. For <code>User</code>, use <code>u</code>; for <code>Cache</code>, use <code>c</code>. Not <code>self</code> or <code>this</code>.</li>
+        </ul>
+
+        <h3>Error Handling Idioms</h3>
+        <pre><code>// The standard check immediately after the call
+if err != nil {
+    return fmt.Errorf("doThing: %w", err)
+}
+
+// Guard clauses — handle the error case first, keep happy path unindented
+func processUser(id int) error {
+    user, err := fetchUser(id)
+    if err != nil {
+        return fmt.Errorf("processUser: fetch: %w", err)
+    }
+    if !user.Active {
+        return ErrInactiveUser
+    }
+    // happy path — unindented, easy to follow
+    return save(user)
+}
+
+// avoid nested if-err chains:
+// BAD
+if err == nil {
+    if result, err := step2(); err == nil {
+        if err := step3(result); err == nil { ... }
+    }
+}</code></pre>
+
+        <h3>Prefer Composition</h3>
+        <p>Go has no inheritance. The idiomatic alternative is composition — building complex behavior from simple, focused types:</p>
+        <pre><code>// Composition via embedding + additional behavior
+type TimedCache struct {
+    Cache                  // embed Cache's methods
+    ttl   time.Duration
+}
+
+func (t *TimedCache) Set(k string, v interface{}) {
+    // override Set to add expiry logic
+    t.Cache.Set(k, v)
+    t.scheduleExpiry(k, t.ttl)
+}
+
+// Middleware pattern — wrap a handler with additional behavior
+type LoggingMiddleware struct {
+    next   http.Handler
+    logger *log.Logger
+}
+
+func (l *LoggingMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    start := time.Now()
+    l.next.ServeHTTP(w, r)
+    l.logger.Printf("%s %s %v", r.Method, r.URL.Path, time.Since(start))
+}</code></pre>
+
+        <h3>Functional Options Pattern</h3>
+        <p>When a constructor has many optional parameters, the functional options pattern is cleaner than a config struct and more extensible than positional arguments:</p>
+        <pre><code>type Server struct {
+    port    int
+    timeout time.Duration
+    logger  *log.Logger
+}
+
+type Option func(*Server)
+
+func WithPort(port int) Option {
+    return func(s *Server) { s.port = port }
+}
+
+func WithTimeout(d time.Duration) Option {
+    return func(s *Server) { s.timeout = d }
+}
+
+func NewServer(opts ...Option) *Server {
+    s := &Server{
+        port:    8080,               // sensible defaults
+        timeout: 30 * time.Second,
+    }
+    for _, opt := range opts {
+        opt(s)
+    }
+    return s
+}
+
+// Clean call site — only specify what differs from defaults
+srv := NewServer(
+    WithPort(9000),
+    WithTimeout(10 * time.Second),
+)</code></pre>
+
+        <h3>Don't Over-Abstract</h3>
+        <p>Go's philosophy is to keep things simple. Patterns that feel natural in Java or C++ often don't belong in Go:</p>
+        <ul>
+          <li><strong>Don't create interfaces for things with only one implementation</strong> — premature abstraction makes code harder to follow. Add the interface when you need a second implementation or need to test with a fake.</li>
+          <li><strong>Don't create packages just to organize</strong> — a <code>utils</code> or <code>helpers</code> package that wraps a few functions adds a layer of indirection with no benefit. Keep the functions in the package that uses them.</li>
+          <li><strong>Repetition is not always bad</strong> — duplicating 5 lines of similar code is often clearer than extracting a function that takes 4 parameters to handle all the variations. Go proverb: "A little copying is better than a little dependency."</li>
+          <li><strong>Don't wrap errors you're going to ignore</strong> — if you're always swallowing the error or logging and returning, you're hiding bugs. Either handle it or propagate it.</li>
+        </ul>
+
+        <h3>Key Go Proverbs</h3>
+        <p>Rob Pike's Go proverbs capture the philosophy better than any rule list:</p>
+        <ul>
+          <li>"Don't communicate by sharing memory; share memory by communicating."</li>
+          <li>"The bigger the interface, the weaker the abstraction."</li>
+          <li>"Make the zero value useful." — design types so their zero value works correctly without explicit initialization.</li>
+          <li>"A little copying is better than a little dependency."</li>
+          <li>"Clear is better than clever." — code is read far more than it's written. Optimize for the reader.</li>
+          <li>"Errors are values." — treat errors as data you can inspect, wrap, and transform. Don't just check and discard.</li>
+          <li>"Documentation is for users." — document exported identifiers as if you're explaining them to someone who doesn't have access to your source code.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Resources -->
+    <div class="section" style="border-style:dashed;">
+      <div class="section-header" style="border-bottom:none;">
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
+      </div>
+      <div class="section-body">
+        <div class="resource-list">
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Go Proverbs</div><div class="resource-author">Rob Pike — go-proverbs.github.io</div><div class="resource-desc">The 19 proverbs. Read each one slowly. Each is a compressed lesson from years of writing Go in production. They encode the tradeoffs Go was designed to make.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Effective Go</div><div class="resource-author">go.dev/doc/effective_go</div><div class="resource-desc">The official idiomatic Go guide from the Go team. Covers formatting, naming, functions, methods, interfaces, and composition. The canonical reference for Go style.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Standard Go Project Layout</div><div class="resource-author">github.com/golang-standards/project-layout</div><div class="resource-desc">Opinionated but widely adopted project structure. Good starting point. Note: this is community convention, not official Go guidance.</div></div></div>
+          <div class="resource"><span class="resource-type book">book</span><div class="resource-content"><div class="resource-title">100 Go Mistakes and How to Avoid Them</div><div class="resource-author">Teiva Harsanyi — Manning</div><div class="resource-desc">100 real bugs Go developers encounter, explained with examples and fixes. One of the best books for going from "writes Go" to "writes idiomatic Go." Read after you have 3–6 months of Go experience.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">CodeReviewComments</div><div class="resource-author">github.com/golang/go/wiki/CodeReviewComments</div><div class="resource-desc">The Go team's collected comments from code reviews. Covers everything from error strings to naming to when to use goroutines. A living document of Go idioms.</div></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <a href="go-concurrency.html">← Concurrency</a>
+    <a href="../go.html" class="center">All modules</a>
+    <a href="go-idioms.html">Go Idioms →</a>
+  </div>
+</footer>
+
+<script src="../js/app.js"></script>
+<script src="../js/highlight.js"></script>
+<script>
+  initSections('go-patterns');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
+</script>
+</body>
+</html>

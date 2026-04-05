@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Go REST APIs — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="inner">
+    <a href="../go.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 6 sections understood</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>🚀 REST APIs &amp; Production Go</h1>
+    <p class="subtitle">Building production JSON APIs in Go — encoding patterns, CRUD with PostgreSQL, filtering and pagination, rate limiting, token authentication, and graceful shutdown.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <!-- ─── 1. JSON Patterns ──────────────────────────────────── -->
+    <div class="section" data-id="json-patterns">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📦</span><h2>JSON Encoding &amp; Decoding</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go's <code>encoding/json</code> package is the foundation of any JSON API. The standard patterns used in production Go APIs go beyond basic <code>json.Marshal</code> — they handle error uniformity, request validation, and edge cases that will bite you in production.</p>
+
+        <h3>Sending JSON Responses</h3>
+        <p>Write a helper so all responses share the same structure and headers:</p>
+        <pre><code>// Envelope wraps all responses in a consistent shape:
+// {"movie": {...}} instead of just {...}
+// This prevents JSON arrays at the top level (a security concern in older browsers)
+type envelope map[string]any
+
+func (app *application) writeJSON(w http.ResponseWriter, status int,
+    data envelope, headers http.Header) error {
+
+    // MarshalIndent for readability; use Marshal in high-throughput hot paths
+    js, err := json.MarshalIndent(data, "", "\t")
+    if err != nil {
+        return err
+    }
+    js = append(js, '\n')
+
+    // Merge any extra headers the caller wants to add (e.g., Location)
+    for key, value := range headers {
+        w.Header()[key] = value
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(status)
+    w.Write(js)
+    return nil
+}
+
+// Usage
+app.writeJSON(w, http.StatusOK, envelope{"movie": movie}, nil)
+// → {"movie": {"id": 1, "title": "Casablanca", ...}}</code></pre>
+
+        <h3>Custom JSON Marshaling</h3>
+        <pre><code>// Struct tags control field names and omission behavior
+type Movie struct {
+    ID        int64     `json:"id"`
+    CreatedAt time.Time `json:"-"`          // always omit (internal field)
+    Title     string    `json:"title"`
+    Year      int32     `json:"year,omitempty"`   // omit if zero value
+    Runtime   Runtime   `json:"runtime"`    // custom type below
+    Genres    []string  `json:"genres"`
+    Version   int32     `json:"version"`
+}
+
+// Custom type with its own MarshalJSON — controls how it appears in JSON
+type Runtime int32
+
+func (r Runtime) MarshalJSON() ([]byte, error) {
+    s := fmt.Sprintf("%d mins", r)
+    return json.Marshal(s) // returns "102 mins" instead of 102
+}
+
+func (r *Runtime) UnmarshalJSON(b []byte) error {
+    var s string
+    if err := json.Unmarshal(b, &s); err != nil {
+        return errors.New("runtime must be a string")
+    }
+    var n int32
+    _, err := fmt.Sscanf(s, "%d mins", &n)
+    if err != nil {
+        return errors.New("invalid runtime format, expected: \"&lt;N&gt; mins\"")
+    }
+    *r = Runtime(n)
+    return nil
+}</code></pre>
+
+        <h3>Decoding Requests Safely</h3>
+        <p>Raw <code>json.Decoder</code> is too permissive for an API. Wrap it with restrictions:</p>
+        <pre><code>func (app *application) readJSON(w http.ResponseWriter, r *http.Request, dst any) error {
+    // Limit body size to 1MB to prevent resource exhaustion
+    r.Body = http.MaxBytesReader(w, r.Body, 1_048_576)
+
+    dec := json.NewDecoder(r.Body)
+    dec.DisallowUnknownFields() // error on fields not in dst struct
+
+    err := dec.Decode(dst)
+    if err != nil {
+        var syntaxError *json.SyntaxError
+        var unmarshalTypeError *json.UnmarshalTypeError
+        var maxBytesError *http.MaxBytesError
+
+        switch {
+        case errors.As(err, &syntaxError):
+            return fmt.Errorf("body contains badly-formed JSON at position %d", syntaxError.Offset)
+        case errors.As(err, &unmarshalTypeError):
+            return fmt.Errorf("body contains incorrect JSON type for field %q", unmarshalTypeError.Field)
+        case errors.Is(err, io.ErrUnexpectedEOF):
+            return errors.New("body contains badly-formed JSON")
+        case errors.Is(err, io.EOF):
+            return errors.New("body must not be empty")
+        case strings.HasPrefix(err.Error(), "json: unknown field"):
+            field := strings.TrimPrefix(err.Error(), "json: unknown field ")
+            return fmt.Errorf("body contains unknown key %s", field)
+        case errors.As(err, &maxBytesError):
+            return fmt.Errorf("body must not be larger than %d bytes", maxBytesError.Limit)
+        default:
+            return err
+        }
+    }
+
+    // Disallow multiple JSON values in the body
+    err = dec.Decode(&struct{}{})
+    if !errors.Is(err, io.EOF) {
+        return errors.New("body must only contain a single JSON value")
+    }
+    return nil
+}
+
+// Validation helper — collect errors before responding
+type Validator struct {
+    Errors map[string]string
+}
+
+func (v *Validator) Check(ok bool, key, message string) {
+    if !ok {
+        if v.Errors == nil {
+            v.Errors = make(map[string]string)
+        }
+        v.Errors[key] = message
+    }
+}
+
+// In a handler
+var input struct {
+    Title   string   `json:"title"`
+    Year    int32    `json:"year"`
+    Runtime Runtime  `json:"runtime"`
+    Genres  []string `json:"genres"`
+}
+if err := app.readJSON(w, r, &input); err != nil {
+    app.badRequestResponse(w, r, err)
+    return
+}
+
+v := &Validator{}
+v.Check(input.Title != "", "title", "must be provided")
+v.Check(input.Year >= 1888, "year", "must be no earlier than 1888")
+v.Check(len(input.Genres) >= 1, "genres", "must contain at least 1 genre")
+
+if len(v.Errors) > 0 {
+    app.failedValidationResponse(w, r, v.Errors)
+    return
+}</code></pre>
+
+        <h3>Consistent Error Responses</h3>
+        <pre><code>// All errors return the same envelope shape:
+// {"error": "message"} or {"error": {"field": "message"}}
+func (app *application) errorResponse(w http.ResponseWriter, r *http.Request,
+    status int, message any) {
+    app.writeJSON(w, status, envelope{"error": message}, nil)
+}
+
+func (app *application) notFoundResponse(w http.ResponseWriter, r *http.Request) {
+    app.errorResponse(w, r, http.StatusNotFound, "the requested resource could not be found")
+}
+
+func (app *application) failedValidationResponse(w http.ResponseWriter, r *http.Request,
+    errors map[string]string) {
+    app.errorResponse(w, r, http.StatusUnprocessableEntity, errors)
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- ─── 2. CRUD & REST ────────────────────────────────────── -->
+    <div class="section" data-id="crud-rest">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔄</span><h2>CRUD, Partial Updates &amp; Concurrency Control</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Well-designed REST CRUD is more nuanced than mapping HTTP methods to SQL operations. Partial updates (PATCH) and optimistic concurrency control are the patterns that separate toy APIs from production ones.</p>
+
+        <h3>RESTful Route Design</h3>
+        <pre><code>// routes.go
+mux.HandleFunc("POST   /v1/movies",       app.createMovieHandler)
+mux.HandleFunc("GET    /v1/movies/{id}",  app.showMovieHandler)
+mux.HandleFunc("PATCH  /v1/movies/{id}",  app.updateMovieHandler)
+mux.HandleFunc("DELETE /v1/movies/{id}",  app.deleteMovieHandler)
+mux.HandleFunc("GET    /v1/movies",       app.listMoviesHandler)</code></pre>
+
+        <h3>CRUD with PostgreSQL</h3>
+        <pre><code>// internal/data/movies.go
+type MovieModel struct {
+    DB *sql.DB
+}
+
+func (m MovieModel) Insert(movie *Movie) error {
+    query := `
+        INSERT INTO movies (title, year, runtime, genres)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, created_at, version`
+
+    args := []any{movie.Title, movie.Year, movie.Runtime, pq.Array(movie.Genres)}
+
+    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+    defer cancel()
+
+    // RETURNING populates id, created_at, version in place
+    return m.DB.QueryRowContext(ctx, query, args...).Scan(
+        &movie.ID, &movie.CreatedAt, &movie.Version,
+    )
+}
+
+func (m MovieModel) Get(id int64) (*Movie, error) {
+    if id < 1 {
+        return nil, ErrRecordNotFound
+    }
+    query := `
+        SELECT id, created_at, title, year, runtime, genres, version
+        FROM movies WHERE id = $1`
+
+    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+    defer cancel()
+
+    var movie Movie
+    err := m.DB.QueryRowContext(ctx, query, id).Scan(
+        &movie.ID, &movie.CreatedAt, &movie.Title, &movie.Year,
+        &movie.Runtime, pq.Array(&movie.Genres), &movie.Version,
+    )
+    if errors.Is(err, sql.ErrNoRows) {
+        return nil, ErrRecordNotFound
+    }
+    return &movie, err
+}</code></pre>
+
+        <h3>Partial Updates with PATCH</h3>
+        <p>PATCH should only update the fields provided in the request body. Use pointer fields in the input struct — <code>nil</code> means "not provided, leave as-is":</p>
+        <pre><code>func (app *application) updateMovieHandler(w http.ResponseWriter, r *http.Request) {
+    id, err := app.readIDParam(r)
+    // ...
+
+    // Fetch the existing record
+    movie, err := app.models.Movies.Get(id)
+    // ...
+
+    // Pointer types: nil = not provided = don't update
+    var input struct {
+        Title   *string  `json:"title"`
+        Year    *int32   `json:"year"`
+        Runtime *Runtime `json:"runtime"`
+        Genres  []string `json:"genres"`
+    }
+    if err := app.readJSON(w, r, &input); err != nil {
+        // ...
+    }
+
+    // Only update fields that were provided
+    if input.Title != nil {
+        movie.Title = *input.Title
+    }
+    if input.Year != nil {
+        movie.Year = *input.Year
+    }
+    if input.Runtime != nil {
+        movie.Runtime = *input.Runtime
+    }
+    if input.Genres != nil {
+        movie.Genres = input.Genres
+    }
+
+    // Validate the updated movie
+    // ...
+
+    // Update
+    err = app.models.Movies.Update(movie)
+    // ...
+}</code></pre>
+
+        <h3>Optimistic Concurrency Control</h3>
+        <p>Without concurrency control, two simultaneous PATCH requests can silently overwrite each other's changes (the "lost update" problem). Optimistic locking uses a version column to detect conflicts:</p>
+        <pre><code>// Schema: version increments on every update
+-- ALTER TABLE movies ADD COLUMN version integer NOT NULL DEFAULT 1;
+
+// Update includes version in the WHERE clause
+func (m MovieModel) Update(movie *Movie) error {
+    query := `
+        UPDATE movies
+        SET title = $1, year = $2, runtime = $3, genres = $4, version = version + 1
+        WHERE id = $5 AND version = $6
+        RETURNING version`
+
+    args := []any{movie.Title, movie.Year, movie.Runtime,
+        pq.Array(movie.Genres), movie.ID, movie.Version}
+
+    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+    defer cancel()
+
+    err := m.DB.QueryRowContext(ctx, query, args...).Scan(&movie.Version)
+    if errors.Is(err, sql.ErrNoRows) {
+        // Zero rows updated means the version didn't match — someone else updated first
+        return ErrEditConflict
+    }
+    return err
+}
+
+// In the handler — return 409 Conflict
+err = app.models.Movies.Update(movie)
+if err != nil {
+    switch {
+    case errors.Is(err, data.ErrEditConflict):
+        app.editConflictResponse(w, r) // 409
+    default:
+        app.serverErrorResponse(w, r, err)
+    }
+    return
+}</code></pre>
+        <div class="note note-info">
+          For high-contention scenarios, consider using a UUID version column (<code>gen_random_uuid()</code>) instead of an integer. With integers, a sufficiently fast update loop can theoretically "skip" your version check; UUIDs make this impossible.
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── 3. Filtering & Pagination ────────────────────────── -->
+    <div class="section" data-id="filtering-pagination">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔍</span><h2>Filtering, Sorting &amp; Pagination</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Listing endpoints need filtering, sorting, and pagination to be useful at scale. The patterns here are safe against SQL injection and return rich pagination metadata to the client.</p>
+
+        <h3>Parsing Query String Parameters</h3>
+        <pre><code>// Helpers that return safe defaults for missing/invalid params
+func (app *application) readString(qs url.Values, key, defaultValue string) string {
+    s := qs.Get(key)
+    if s == "" {
+        return defaultValue
+    }
+    return s
+}
+
+func (app *application) readInt(qs url.Values, key string, defaultValue int,
+    v *Validator) int {
+    s := qs.Get(key)
+    if s == "" {
+        return defaultValue
+    }
+    i, err := strconv.Atoi(s)
+    if err != nil {
+        v.Check(false, key, "must be an integer value")
+        return defaultValue
+    }
+    return i
+}
+
+func (app *application) readCSV(qs url.Values, key string, defaultValue []string) []string {
+    csv := qs.Get(key)
+    if csv == "" {
+        return defaultValue
+    }
+    return strings.Split(csv, ",")
+}
+
+// In the handler
+qs := r.URL.Query()
+input := struct {
+    Title  string
+    Genres []string
+    Filters
+}{
+    Title:  app.readString(qs, "title", ""),
+    Genres: app.readCSV(qs, "genres", []string{}),
+    Filters: Filters{
+        Page:         app.readInt(qs, "page", 1, v),
+        PageSize:     app.readInt(qs, "page_size", 20, v),
+        Sort:         app.readString(qs, "sort", "id"),
+        SortSafeList: []string{"id", "title", "year", "runtime", "-id", "-title", "-year"},
+    },
+}
+// GET /v1/movies?title=godfather&genres=crime,drama&sort=-year&page=2&page_size=5</code></pre>
+
+        <h3>Safe Dynamic Sorting</h3>
+        <p>Never interpolate user input directly into SQL. Use a safelist and map to a known-safe column name:</p>
+        <pre><code>type Filters struct {
+    Page         int
+    PageSize     int
+    Sort         string
+    SortSafeList []string
+}
+
+// sortColumn returns the column name if it's on the safelist — panics otherwise
+// (panic is fine here: a safelist miss is a programmer error, not a user error)
+func (f Filters) sortColumn() string {
+    for _, safeValue := range f.SortSafeList {
+        if f.Sort == safeValue {
+            return strings.TrimLeft(f.Sort, "-")
+        }
+    }
+    panic("unsafe sort parameter: " + f.Sort)
+}
+
+func (f Filters) sortDirection() string {
+    if strings.HasPrefix(f.Sort, "-") {
+        return "DESC"
+    }
+    return "ASC"
+}
+
+func (f Filters) limit() int  { return f.PageSize }
+func (f Filters) offset() int { return (f.Page - 1) * f.PageSize }</code></pre>
+
+        <h3>The Query with Full-Text Search</h3>
+        <pre><code>func (m MovieModel) GetAll(title string, genres []string, filters Filters) ([]*Movie, Metadata, error) {
+    // $1::text creates a PostgreSQL full-text search query from the title string.
+    // to_tsvector builds an index of the title's words.
+    // ILIKE fallback for simple substring matching.
+    // COALESCE makes title filter optional: '' matches everything.
+    query := fmt.Sprintf(`
+        SELECT count(*) OVER(), id, created_at, title, year, runtime, genres, version
+        FROM movies
+        WHERE (to_tsvector('simple', title) @@ plainto_tsquery('simple', $1) OR $1 = '')
+        AND   (genres @> $2 OR $2 = '{}')
+        ORDER BY %s %s, id ASC
+        LIMIT $3 OFFSET $4`,
+        filters.sortColumn(), filters.sortDirection())
+
+    args := []any{title, pq.Array(genres), filters.limit(), filters.offset()}
+
+    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+    defer cancel()
+
+    rows, err := m.DB.QueryContext(ctx, query, args...)
+    // ...
+
+    totalRecords := 0
+    var movies []*Movie
+    for rows.Next() {
+        var movie Movie
+        err := rows.Scan(
+            &totalRecords, // count(*) OVER() — same value on every row
+            &movie.ID, &movie.CreatedAt, &movie.Title, &movie.Year,
+            &movie.Runtime, pq.Array(&movie.Genres), &movie.Version,
+        )
+        // ...
+        movies = append(movies, &movie)
+    }
+    // ...
+    metadata := calculateMetadata(totalRecords, filters.Page, filters.PageSize)
+    return movies, metadata, nil
+}</code></pre>
+
+        <h3>Pagination Metadata</h3>
+        <p>Return pagination state to the client so they can build "page N of M" UI and know when to stop fetching:</p>
+        <pre><code>type Metadata struct {
+    CurrentPage  int `json:"current_page,omitempty"`
+    PageSize     int `json:"page_size,omitempty"`
+    FirstPage    int `json:"first_page,omitempty"`
+    LastPage     int `json:"last_page,omitempty"`
+    TotalRecords int `json:"total_records,omitempty"`
+}
+
+func calculateMetadata(totalRecords, page, pageSize int) Metadata {
+    if totalRecords == 0 {
+        return Metadata{}
+    }
+    return Metadata{
+        CurrentPage:  page,
+        PageSize:     pageSize,
+        FirstPage:    1,
+        LastPage:     int(math.Ceil(float64(totalRecords) / float64(pageSize))),
+        TotalRecords: totalRecords,
+    }
+}
+
+// Response shape:
+// {
+//   "metadata": {"current_page":1, "page_size":20, "first_page":1, "last_page":3, "total_records":59},
+//   "movies": [...]
+// }
+app.writeJSON(w, http.StatusOK, envelope{"movies": movies, "metadata": metadata}, nil)</code></pre>
+      </div>
+    </div>
+
+    <!-- ─── 4. Rate Limiting ──────────────────────────────────── -->
+    <div class="section" data-id="rate-limiting">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">⏱️</span><h2>Rate Limiting</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Rate limiting protects your API from abuse and overload. Go's <code>golang.org/x/time/rate</code> package implements the token bucket algorithm — the most practical approach for in-process rate limiting.</p>
+
+        <h3>Token Bucket Algorithm</h3>
+        <p>A bucket holds tokens. Each request consumes one token. Tokens are added at a fixed rate. When the bucket is empty, requests are rejected. This naturally allows bursts (up to the bucket size) while enforcing an average rate:</p>
+        <pre><code>import "golang.org/x/time/rate"
+
+// rate.NewLimiter(r, b):
+//   r = tokens per second (the sustained rate)
+//   b = bucket capacity (the burst size)
+limiter := rate.NewLimiter(rate.Limit(2), 4)
+// Allows bursts of up to 4 requests, sustaining 2 req/s on average
+
+if !limiter.Allow() {
+    // bucket is empty — reject the request
+    app.rateLimitExceededResponse(w, r) // 429 Too Many Requests
+    return
+}
+// process request...</code></pre>
+
+        <h3>Global Rate Limiter Middleware</h3>
+        <pre><code>func (app *application) rateLimit(next http.Handler) http.Handler {
+    limiter := rate.NewLimiter(rate.Limit(app.config.limiter.rps), app.config.limiter.burst)
+
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if app.config.limiter.enabled {
+            if !limiter.Allow() {
+                app.rateLimitExceededResponse(w, r)
+                return
+            }
+        }
+        next.ServeHTTP(w, r)
+    })
+}</code></pre>
+
+        <h3>Per-IP Rate Limiting</h3>
+        <p>A global limiter shares capacity across all clients. Per-IP limiting gives each client their own bucket:</p>
+        <pre><code>func (app *application) rateLimit(next http.Handler) http.Handler {
+    type client struct {
+        limiter  *rate.Limiter
+        lastSeen time.Time
+    }
+
+    var (
+        mu      sync.Mutex
+        clients = make(map[string]*client)
+    )
+
+    // Background goroutine: clean up stale entries every minute
+    go func() {
+        for {
+            time.Sleep(time.Minute)
+            mu.Lock()
+            for ip, c := range clients {
+                if time.Since(c.lastSeen) > 3*time.Minute {
+                    delete(clients, ip)
+                }
+            }
+            mu.Unlock()
+        }
+    }()
+
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        ip, _, err := net.SplitHostPort(r.RemoteAddr)
+        if err != nil {
+            app.serverErrorResponse(w, r, err)
+            return
+        }
+
+        mu.Lock()
+        if _, found := clients[ip]; !found {
+            clients[ip] = &client{
+                limiter: rate.NewLimiter(rate.Limit(app.config.limiter.rps),
+                    app.config.limiter.burst),
+            }
+        }
+        clients[ip].lastSeen = time.Now()
+        if !clients[ip].limiter.Allow() {
+            mu.Unlock()
+            app.rateLimitExceededResponse(w, r)
+            return
+        }
+        mu.Unlock()
+
+        next.ServeHTTP(w, r)
+    })
+}</code></pre>
+        <div class="note note-warning">
+          <strong>Behind a reverse proxy</strong>: <code>r.RemoteAddr</code> will be the proxy's IP, not the client's. Use <code>X-Forwarded-For</code> or <code>X-Real-IP</code> headers — but only if you control the proxy. Never trust these headers from untrusted clients.
+        </div>
+        <div class="note note-info">
+          In-process rate limiting doesn't help when you have multiple API server instances. For distributed rate limiting, use Redis with the sliding window or token bucket implemented in Lua, or a dedicated service like Kong or Envoy.
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── 5. Token Auth & CORS ──────────────────────────────── -->
+    <div class="section" data-id="token-auth">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔑</span><h2>Token Authentication, Permissions &amp; CORS</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Stateful API token authentication — tokens stored in the database, hashed at rest — is simpler and more auditable than JWTs for most internal APIs. Combine it with permission-based access control for fine-grained authorization.</p>
+
+        <h3>Stateful Token Authentication</h3>
+        <p>The flow: user logs in → server generates a random token → server stores a hash of the token in the DB → server sends the plaintext token to the user → user sends the token in the <code>Authorization</code> header → server hashes the incoming token and looks it up in the DB.</p>
+        <pre><code>// Schema
+// CREATE TABLE tokens (
+//   hash    bytea PRIMARY KEY,
+//   user_id bigint NOT NULL REFERENCES users ON DELETE CASCADE,
+//   expiry  timestamp(0) NOT NULL,
+//   scope   text NOT NULL
+// );
+
+// Generate a 26-byte (416-bit) random token, store its SHA-256 hash
+func generateToken(userID int64, ttl time.Duration, scope string) (*Token, error) {
+    token := &Token{
+        UserID: userID,
+        Expiry: time.Now().Add(ttl),
+        Scope:  scope,
+    }
+
+    randomBytes := make([]byte, 16)
+    _, err := io.ReadFull(rand.Reader, randomBytes)
+    if err != nil {
+        return nil, err
+    }
+
+    // base32 encoding: readable, no ambiguous characters (I/1/l/O/0)
+    token.Plaintext = base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(randomBytes)
+    hash := sha256.Sum256([]byte(token.Plaintext))
+    token.Hash = hash[:] // store the hash, never the plaintext
+
+    return token, nil
+}
+
+// Authenticate: hash the incoming token, look up in DB
+func (m TokenModel) GetForToken(tokenScope, tokenPlaintext string) (*User, error) {
+    tokenHash := sha256.Sum256([]byte(tokenPlaintext))
+    query := `
+        SELECT users.id, users.name, users.email, users.version
+        FROM users
+        INNER JOIN tokens ON users.id = tokens.user_id
+        WHERE tokens.hash = $1
+          AND tokens.scope = $2
+          AND tokens.expiry > $3`
+
+    args := []any{tokenHash[:], tokenScope, time.Now()}
+    // ...
+}</code></pre>
+
+        <h3>Authentication Middleware</h3>
+        <pre><code>// Store authenticated user in request context — type-safe key
+type contextKey string
+const userContextKey = contextKey("user")
+
+func (app *application) authenticate(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // All responses where we look at Authorization must vary by it
+        w.Header().Add("Vary", "Authorization")
+
+        authHeader := r.Header.Get("Authorization")
+        if authHeader == "" {
+            // Store anonymous user — downstream handlers can check
+            r = contextSetUser(r, AnonymousUser)
+            next.ServeHTTP(w, r)
+            return
+        }
+
+        parts := strings.SplitN(authHeader, " ", 2)
+        if len(parts) != 2 || parts[0] != "Bearer" {
+            app.invalidAuthenticationTokenResponse(w, r)
+            return
+        }
+
+        user, err := app.models.Tokens.GetForToken(ScopeAuthentication, parts[1])
+        if err != nil {
+            switch {
+            case errors.Is(err, data.ErrRecordNotFound):
+                app.invalidAuthenticationTokenResponse(w, r)
+            default:
+                app.serverErrorResponse(w, r, err)
+            }
+            return
+        }
+
+        r = contextSetUser(r, user)
+        next.ServeHTTP(w, r)
+    })
+}
+
+// requireAuthenticatedUser guards routes that need a real user
+func (app *application) requireAuthenticatedUser(next http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        user := app.contextGetUser(r)
+        if user.IsAnonymous() {
+            app.authenticationRequiredResponse(w, r) // 401
+            return
+        }
+        next(w, r)
+    }
+}</code></pre>
+
+        <h3>Permission-Based Authorization</h3>
+        <pre><code>// Schema: users ←→ permissions (many-to-many)
+// permissions: "movies:read", "movies:write"
+
+func (app *application) requirePermission(code string, next http.HandlerFunc) http.HandlerFunc {
+    fn := func(w http.ResponseWriter, r *http.Request) {
+        user := app.contextGetUser(r)
+        perms, err := app.models.Permissions.GetAllForUser(user.ID)
+        if err != nil {
+            app.serverErrorResponse(w, r, err)
+            return
+        }
+        if !perms.Include(code) {
+            app.notPermittedResponse(w, r) // 403
+            return
+        }
+        next(w, r)
+    }
+    // Wrap with requireAuthenticatedUser first
+    return app.requireAuthenticatedUser(fn)
+}
+
+// Route setup — movies:write required for mutations
+mux.HandleFunc("POST /v1/movies",      app.requirePermission("movies:write", app.createMovieHandler))
+mux.HandleFunc("PATCH /v1/movies/{id}", app.requirePermission("movies:write", app.updateMovieHandler))</code></pre>
+
+        <h3>CORS</h3>
+        <pre><code>// For a trusted set of origins — the most common and safest approach
+func (app *application) enableCORS(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Add("Vary", "Origin")
+        w.Header().Add("Vary", "Access-Control-Request-Method")
+
+        origin := r.Header.Get("Origin")
+
+        if origin != "" {
+            for _, trustedOrigin := range app.config.cors.trustedOrigins {
+                if origin == trustedOrigin {
+                    w.Header().Set("Access-Control-Allow-Origin", origin)
+
+                    // Handle preflight requests
+                    if r.Method == http.MethodOptions &&
+                       r.Header.Get("Access-Control-Request-Method") != "" {
+                        w.Header().Set("Access-Control-Allow-Methods",
+                            "OPTIONS, PUT, PATCH, DELETE")
+                        w.Header().Set("Access-Control-Allow-Headers",
+                            "Authorization, Content-Type")
+                        w.WriteHeader(http.StatusOK)
+                        return
+                    }
+                    break
+                }
+            }
+        }
+
+        next.ServeHTTP(w, r)
+    })
+}</code></pre>
+        <div class="note note-warning">
+          Never set <code>Access-Control-Allow-Origin: *</code> on endpoints that use cookie or token authentication. Wildcard CORS + credentials = you've disabled the Same-Origin Policy for your API.
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── 6. Graceful Shutdown & Ops ───────────────────────── -->
+    <div class="section" data-id="graceful-shutdown">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🛡️</span><h2>Graceful Shutdown, Background Tasks &amp; Deployment</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Production Go services need to handle OS signals properly, drain in-flight requests before shutdown, and safely launch background goroutines. These aren't optional — they're what separates a reliable service from one that drops requests on every deploy.</p>
+
+        <h3>Graceful Shutdown</h3>
+        <pre><code>func (app *application) serve() error {
+    srv := &http.Server{
+        Addr:         fmt.Sprintf(":%d", app.config.port),
+        Handler:      app.routes(),
+        ReadTimeout:  5 * time.Second,
+        WriteTimeout: 10 * time.Second,
+        IdleTimeout:  60 * time.Second,
+        ErrorLog:     slog.NewLogLogger(app.logger.Handler(), slog.LevelError),
+    }
+
+    // shutdownError receives the result of Shutdown() — nil on success
+    shutdownError := make(chan error)
+
+    go func() {
+        quit := make(chan os.Signal, 1)
+        // SIGINT = Ctrl-C, SIGTERM = kill / systemd stop
+        signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+        s := <-quit
+
+        app.logger.Info("shutting down server", "signal", s.String())
+
+        ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+        defer cancel()
+
+        // Shutdown stops accepting new connections, waits for active ones to finish
+        shutdownError <- srv.Shutdown(ctx)
+    }()
+
+    app.logger.Info("starting server", "addr", srv.Addr, "env", app.config.env)
+
+    // ListenAndServe returns http.ErrServerClosed when Shutdown is called — that's OK
+    err := srv.ListenAndServe()
+    if !errors.Is(err, http.ErrServerClosed) {
+        return err
+    }
+
+    // Wait for Shutdown() to complete
+    err = <-shutdownError
+    if err != nil {
+        return err
+    }
+
+    app.logger.Info("stopped server", "addr", srv.Addr)
+    return nil
+}</code></pre>
+
+        <h3>Background Goroutines</h3>
+        <p>Launching goroutines naively from handlers creates goroutines that outlive the HTTP request and can cause data races or silent failures. The pattern: track them with a <code>sync.WaitGroup</code>, recover panics, integrate with graceful shutdown:</p>
+        <pre><code>type application struct {
+    // ...
+    wg sync.WaitGroup
+}
+
+// background launches a goroutine with panic recovery and WaitGroup tracking
+func (app *application) background(fn func()) {
+    app.wg.Add(1)
+
+    go func() {
+        defer app.wg.Done()
+
+        defer func() {
+            if err := recover(); err != nil {
+                app.logger.Error("background task panic", "error", fmt.Errorf("%s", err))
+            }
+        }()
+
+        fn()
+    }()
+}
+
+// In a handler — send a welcome email without blocking the response
+app.background(func() {
+    err := app.mailer.Send(user.Email, "welcome.tmpl", user)
+    if err != nil {
+        app.logger.Error("failed to send welcome email", "error", err)
+    }
+})
+
+// In serve() — wait for all background goroutines before exit
+shutdownError <- srv.Shutdown(ctx)
+app.wg.Wait() // block until all background tasks complete</code></pre>
+
+        <h3>Metrics with expvar</h3>
+        <pre><code>import "expvar"
+
+// expvar exposes a /debug/vars endpoint with JSON metrics
+// Register at startup
+var (
+    totalRequestsReceived           = expvar.NewInt("total_requests_received")
+    totalResponsesSent              = expvar.NewInt("total_responses_sent")
+    totalProcessingTimeMicroseconds = expvar.NewInt("total_processing_time_us")
+    totalActiveConnections          = expvar.NewInt("total_active_connections")
+)
+
+// Publish DB pool stats automatically
+expvar.Publish("database", expvar.Func(func() any {
+    return app.db.Stats()
+}))
+
+// Metrics middleware
+func (app *application) metrics(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        start := time.Now()
+        totalRequestsReceived.Add(1)
+        next.ServeHTTP(w, r)
+        totalResponsesSent.Add(1)
+        totalProcessingTimeMicroseconds.Add(time.Since(start).Microseconds())
+    })
+}
+
+// Expose the metrics endpoint (restrict to internal network in production)
+mux.Handle("GET /debug/vars", expvar.Handler())</code></pre>
+
+        <h3>Deployment with systemd + Caddy</h3>
+        <pre><code># /etc/systemd/system/myapi.service
+[Unit]
+Description=My Go API
+After=network.target
+
+[Service]
+Type=simple
+User=myapi
+Group=myapi
+Restart=on-failure
+RestartSec=5
+# Environment variables from a file — keep secrets out of the unit
+EnvironmentFile=/etc/myapi/env
+WorkingDirectory=/home/myapi
+ExecStart=/home/myapi/bin/api -port=4000 -env=production -db-dsn=${MYAPI_DB_DSN}
+
+[Install]
+WantedBy=multi-user.target
+
+# Deploy script (Makefile target)
+# rsync the binary, then reload
+rsync -P ./bin/linux_amd64/api user@server:/home/myapi/bin/
+ssh user@server 'sudo systemctl restart myapi'</code></pre>
+        <pre><code># Caddyfile — reverse proxy with automatic HTTPS (Let's Encrypt)
+api.example.com {
+    reverse_proxy localhost:4000
+    # Caddy handles TLS, HTTP→HTTPS redirect, and HSTS automatically
+}
+
+# Restrict /debug/vars to internal access
+api.example.com/debug/* {
+    basicauth {
+        admin $PASSWORD_HASH
+    }
+    reverse_proxy localhost:4000
+}</code></pre>
+        <div class="note note-info">
+          Caddy is the easiest production TLS story for Go APIs — it provisions Let's Encrypt certificates automatically, renews them, and handles the TLS configuration correctly by default. Zero config compared to Nginx + Certbot.
+        </div>
+
+        <h3>Makefile for Quality Control</h3>
+        <pre><code># Makefile — common tasks as short commands
+.PHONY: run audit build
+
+## run/api: run the API server
+run/api:
+	go run ./cmd/api -db-dsn=${MYAPP_DB_DSN}
+
+## audit: tidy, verify, vet, test, and staticcheck
+audit:
+	go mod tidy
+	go mod verify
+	go vet ./...
+	staticcheck ./...
+	go test -race -vet=off ./...
+
+## build/api: build for current platform
+build/api:
+	go build -ldflags='-s -w -X main.buildTime=${shell date -u +%Y-%m-%dT%H:%M:%SZ}' \
+		-o=./bin/api ./cmd/api
+
+## build/linux: cross-compile for Linux
+build/linux:
+	GOOS=linux GOARCH=amd64 go build -ldflags='-s -w' -o=./bin/linux_amd64/api ./cmd/api</code></pre>
+      </div>
+    </div>
+
+    <!-- Resources -->
+    <div class="section" style="border-style:dashed;">
+      <div class="section-header" style="border-bottom:none;">
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
+      </div>
+      <div class="section-body">
+        <div class="resource-list">
+          <div class="resource"><span class="resource-type book">book</span><div class="resource-content"><div class="resource-title">Let's Go Further</div><div class="resource-author">Alex Edwards — lets-go-further.alexedwards.net</div><div class="resource-desc">The most complete guide to building production JSON APIs in Go. Covers everything on this page in meticulous detail. If you're building a Go API, this is the book to read cover to cover.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Go's x/time/rate package</div><div class="resource-author">pkg.go.dev/golang.org/x/time/rate</div><div class="resource-desc">The token bucket implementation used in production Go APIs. The source code is short and readable — worth reading to understand exactly how Allow(), Reserve(), and Wait() differ.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">The complete guide to Go net/http timeouts</div><div class="resource-author">Cloudflare Blog</div><div class="resource-desc">The definitive explanation of every timeout field in http.Server and http.Client. Essential reading before you deploy a Go HTTP server to production. You will not configure timeouts correctly without reading this.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">JSON and Go</div><div class="resource-author">go.dev/blog/json</div><div class="resource-desc">The official introduction to encoding/json. Covers the basics clearly, but the edge cases (custom marshalers, streaming) need Let's Go Further or the pkg.go.dev docs to fill in the gaps.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Practical CORS in Go</div><div class="resource-author">Alex Edwards — alexedwards.net</div><div class="resource-desc">Explains exactly what CORS does and doesn't protect, why wildcards + credentials are dangerous, and how to implement the preflight flow correctly. Clearer than the MDN docs for backend developers.</div></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <a href="go-http.html">← HTTP Servers</a>
+    <a href="../go.html" class="center">All modules</a>
+    <span></span>
+  </div>
+</footer>
+
+<script src="../js/app.js"></script>
+<script src="../js/highlight.js"></script>
+<script>
+  initSections('go-api');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
+</script>
+</body>
+</html>

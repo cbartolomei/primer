@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Control Structures &amp; Data — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="inner">
+    <a href="../go.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 6 sections understood</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>🔀 Control Structures &amp; Data</h1>
+    <p class="subtitle">Go's control structures are leaner than C's — no <code>do</code>, no <code>while</code>, no parentheses. Its data types have sharp distinctions that trip up newcomers. Know these cold.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <div class="section" data-id="control-flow">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🌿</span><h2>if &amp; the := Redeclaration Rule</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go's <code>if</code> needs no parentheses around its condition, and the body must always be brace-delimited. The most important pattern: an initialization statement before the condition, scoped to the <code>if</code>/<code>else</code> block:</p>
+        <pre><code>// The initialization statement — err is scoped to this if/else
+if err := file.Chmod(0664); err != nil {
+    log.Print(err)
+    return err
+}
+// err is gone here — can't accidentally reuse it</code></pre>
+        <p>This is the idiomatic way to check errors from a call you only need inside the condition. It reduces scope, prevents accidental reuse of error values, and reads as "do this; if that failed, handle it."</p>
+
+        <h3>Guard Clauses — Omit the else</h3>
+        <p>When an <code>if</code> body ends with <code>return</code>, <code>break</code>, <code>continue</code>, or <code>goto</code>, the <code>else</code> is unnecessary and should be omitted. The successful path flows straight down the page:</p>
+        <pre><code>// AVOID — else after return adds nesting for no reason
+func process(path string) error {
+    f, err := os.Open(path)
+    if err != nil {
+        return err
+    } else {
+        defer f.Close()
+        return doWork(f)
+    }
+}
+
+// GOOD — error cases exit early, happy path is unindented
+func process(path string) error {
+    f, err := os.Open(path)
+    if err != nil {
+        return err
+    }
+    defer f.Close()
+    return doWork(f)
+}</code></pre>
+        <p>When you chain multiple guard clauses this way, the reader can scan the error conditions quickly and then focus on the happy path. Deeply nested code makes both easier to miss.</p>
+
+        <h3>The := Redeclaration Rule</h3>
+        <p>This trips up newcomers. A <code>:=</code> declaration may <em>reuse</em> an existing variable in the same scope, as long as at least one variable on the left is new. This is not a bug — it's what makes idiomatic error handling readable:</p>
+        <pre><code>f, err := os.Open(name)   // declares f and err
+// ...
+d, err := f.Stat()        // declares d; REDECLARES err (reuses existing err)
+// ...
+n, err := f.Read(buf)     // declares n; REDECLARES err again
+
+// This works because:
+// - err already exists from the first line
+// - d and n are new on their respective lines
+// - at least one new variable exists in each declaration</code></pre>
+        <p>Without this rule you'd write <code>var err error</code> once and then use plain <code>=</code> for subsequent assignments — or you'd shadow <code>err</code> in inner scopes by accident. The redeclaration rule threads a needle: one variable per chain of calls, without the boilerplate.</p>
+        <div class="note note-warning">
+          Watch the scope interaction. If an outer scope already has <code>x</code>, writing <code>x, y := foo()</code> inside an <code>if</code> block creates a <em>new</em> <code>x</code> that shadows the outer one — the outer <code>x</code> is not reassigned. Use plain <code>=</code> if you want to update the outer variable.
+        </div>
+      </div>
+    </div>
+
+    <div class="section" data-id="for-range">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔁</span><h2>for &amp; range</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go has one loop: <code>for</code>. It replaces <code>for</code>, <code>while</code>, and <code>do-while</code> from other languages. Three forms:</p>
+        <pre><code>// 1. Classic C-style for
+for i := 0; i < 10; i++ {
+    sum += i
+}
+
+// 2. While-style (condition only)
+for n < limit {
+    n *= 2
+}
+
+// 3. Infinite loop — break or return to exit
+for {
+    work := <-jobs
+    process(work)
+}</code></pre>
+
+        <h3>range</h3>
+        <p><code>range</code> iterates over arrays, slices, strings, maps, and channels. It yields two values: index (or key) and value. Use <code>_</code> to discard either:</p>
+        <pre><code>// Slice — index and value
+for i, v := range mySlice {
+    fmt.Println(i, v)
+}
+
+// Index only — drop value
+for i := range mySlice {
+    mySlice[i] *= 2
+}
+
+// Value only — drop index with _
+sum := 0
+for _, v := range mySlice {
+    sum += v
+}
+
+// Map — key and value (iteration order is random, deliberately)
+for key, value := range myMap {
+    fmt.Println(key, "->", value)
+}
+
+// Channel — receives until closed
+for msg := range ch {
+    process(msg)
+}</code></pre>
+
+        <h3>range over a string gives runes, not bytes</h3>
+        <p>This is one of Go's most important (and most overlooked) details. Indexing a string gives bytes. Ranging a string gives Unicode code points (runes) by parsing the UTF-8 encoding:</p>
+        <pre><code>s := "日本語"
+
+// Indexing gives bytes — s[0] is 0xE6 (first byte of 日)
+fmt.Println(len(s))       // 9 bytes (3 chars × 3 bytes each in UTF-8)
+
+// range gives runes — correct Unicode iteration
+for pos, r := range s {
+    fmt.Printf("rune %c starts at byte %d\n", r, pos)
+}
+// rune 日 starts at byte 0
+// rune 本 starts at byte 3
+// rune 語 starts at byte 6
+
+// Erroneous UTF-8 bytes produce the replacement rune U+FFFD
+for pos, r := range "hello\x80world" {
+    fmt.Printf("%d: %#U\n", pos, r) // \x80 → U+FFFD
+}</code></pre>
+        <p>When you want to work character-by-character with Unicode, range over the string. When you're working with raw bytes (network protocols, binary formats), index it or convert to <code>[]byte</code>.</p>
+
+        <h3>Parallel assignment in for</h3>
+        <p>Go has no comma operator — <code>++</code> and <code>--</code> are statements, not expressions. Use parallel assignment for multi-variable loops:</p>
+        <pre><code>// Reverse a slice in place
+for i, j := 0, len(a)-1; i < j; i, j = i+1, j-1 {
+    a[i], a[j] = a[j], a[i]
+}</code></pre>
+      </div>
+    </div>
+
+    <div class="section" data-id="switch">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔀</span><h2>switch</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go's <code>switch</code> is more general than C's. Cases don't fall through by default — no more <code>break</code> at the end of every case. The expressions don't need to be integers or constants. And a <code>switch</code> with no expression switches on <code>true</code>, making it a cleaner alternative to long <code>if-else</code> chains.</p>
+
+        <h3>Expression-less switch</h3>
+        <pre><code>// switch on true — replaces if-else-if chains
+func classify(n int) string {
+    switch {
+    case n < 0:
+        return "negative"
+    case n == 0:
+        return "zero"
+    case n < 10:
+        return "small"
+    default:
+        return "large"
+    }
+}
+
+// Equivalent if-else — harder to scan
+func classify(n int) string {
+    if n < 0 {
+        return "negative"
+    } else if n == 0 {
+        return "zero"
+    } else if n < 10 {
+        return "small"
+    } else {
+        return "large"
+    }
+}</code></pre>
+
+        <h3>Multiple values per case</h3>
+        <pre><code>func isVowel(c byte) bool {
+    switch c {
+    case 'a', 'e', 'i', 'o', 'u',
+         'A', 'E', 'I', 'O', 'U':
+        return true
+    }
+    return false
+}
+
+// With an init statement
+switch os := runtime.GOOS; os {
+case "darwin":
+    fmt.Println("macOS")
+case "linux":
+    fmt.Println("Linux")
+default:
+    fmt.Printf("other: %s\n", os)
+}</code></pre>
+
+        <h3>fallthrough and labeled break</h3>
+        <p>Cases do not fall through unless you explicitly write <code>fallthrough</code>. You can also break out of a surrounding loop from inside a switch using a label:</p>
+        <pre><code>// fallthrough is explicit and rare
+switch c {
+case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+    n = n*10 + int(c-'0')
+    fallthrough // proceed to next case
+case ' ', '\t':
+    sawWhite = true
+}
+
+// Labeled break — break out of the loop, not just the switch
+Loop:
+    for _, v := range data {
+        switch v {
+        case 0:
+            break Loop // exits the for loop entirely
+        default:
+            process(v)
+        }
+    }</code></pre>
+
+        <h3>Type switch</h3>
+        <p>A type switch inspects the concrete type stored in an interface variable. The variable declared in the switch takes the concrete type in each case:</p>
+        <pre><code>func typeCheck(i interface{}) string {
+    switch v := i.(type) {
+    case int:
+        return fmt.Sprintf("int: %d", v)    // v is int here
+    case string:
+        return fmt.Sprintf("string: %q", v) // v is string here
+    case bool:
+        return fmt.Sprintf("bool: %t", v)
+    case []int:
+        return fmt.Sprintf("[]int with %d elements", len(v))
+    default:
+        return fmt.Sprintf("unknown type: %T", v) // %T prints the type
+    }
+}
+
+// The variable name can be reused — each case has a different type
+switch v := i.(type) {
+case Stringer:
+    fmt.Println(v.String()) // v is Stringer — call interface methods
+case error:
+    fmt.Println(v.Error())
+}</code></pre>
+        <p><strong>When to use a type switch vs type assertion:</strong> Use a type switch when you have multiple types to handle differently. Use a type assertion (<code>v, ok := i.(T)</code>) when you only care about one specific type.</p>
+      </div>
+    </div>
+
+    <div class="section" data-id="new-make">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🏗️</span><h2>new, make &amp; Composite Literals</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go has two allocation builtins — <code>new</code> and <code>make</code> — and they do fundamentally different things. Confusing them is one of the most common mistakes in Go.</p>
+
+        <h3>new — zeroed allocation</h3>
+        <p><code>new(T)</code> allocates zeroed memory for a value of type <code>T</code> and returns a <code>*T</code>. It does not initialize the memory — it only zeros it. The zero value is whatever Go's zero value for <code>T</code> is:</p>
+        <pre><code>p := new(int)    // *int pointing to 0
+p := new(bytes.Buffer) // *bytes.Buffer — usable immediately because
+                       // bytes.Buffer's zero value is an empty buffer
+
+// new is rarely needed — usually you just take the address of a literal
+buf := &bytes.Buffer{} // equivalent, more idiomatic</code></pre>
+        <p>The zero-value-is-useful principle means you often don't need explicit initialization at all. <code>sync.Mutex</code>, <code>bytes.Buffer</code>, <code>sync.WaitGroup</code> — all usable at their zero value. Design your own types this way when possible.</p>
+
+        <h3>make — initialized reference types</h3>
+        <p><code>make</code> applies only to slices, maps, and channels. Unlike <code>new</code>, it returns the initialized (not zeroed) value itself — not a pointer to it. These types are reference types that need internal initialization before they can be used:</p>
+        <pre><code>// make(Type, args...)
+s := make([]int, 10)        // slice: len=10, cap=10, all zeros
+s  = make([]int, 10, 100)   // slice: len=10, cap=100
+m := make(map[string]int)   // map: empty, ready to write
+ch := make(chan int, 5)      // buffered channel, capacity 5
+
+// WRONG: new returns *[]int (pointer to nil slice) — almost never useful
+p := new([]int)   // *[]int pointing to nil slice — rarely what you want
+
+// CORRECT
+s := make([]int, 10) // []int, ready to use</code></pre>
+
+        <h3>Side-by-side comparison</h3>
+        <pre><code>var p *[]int = new([]int)       // allocates a nil slice struct; *p == nil
+var v  []int = make([]int, 100) // slice ready to use, len=100
+
+// Rarely seen — overly complex:
+var p *[]int = new([]int)
+*p = make([]int, 100, 100)
+
+// Idiomatic:
+v := make([]int, 100)</code></pre>
+        <p>Rule of thumb: use <code>make</code> for slices, maps, and channels. Use <code>new</code> almost never — take the address of a composite literal instead.</p>
+
+        <h3>Composite Literals</h3>
+        <p>A composite literal creates a new value each time it's evaluated. Named fields make the ordering flexible and self-documenting — unnamed fields must be in order and are fragile:</p>
+        <pre><code>type Point struct{ X, Y float64 }
+
+// Named fields — order doesn't matter, missing fields get zero values
+p := Point{X: 3.0, Y: 4.0}
+
+// Unnamed — must be in declaration order, breaks if struct changes
+p  = Point{3.0, 4.0}  // avoid this for multi-field structs
+
+// Taking the address — Go returns a pointer to the allocated value
+// (unlike C, returning a local's address is perfectly safe)
+pp := &Point{X: 1, Y: 2}  // type: *Point
+
+// Composite literals for slices, arrays, maps
+primes := []int{2, 3, 5, 7, 11}
+
+tz := map[string]int{
+    "UTC": 0,
+    "EST": -5 * 60 * 60,
+    "PST": -8 * 60 * 60,
+}
+
+// Array with index labels — sparse initialization
+flags := [10]bool{1: true, 5: true, 8: true}</code></pre>
+      </div>
+    </div>
+
+    <div class="section" data-id="slices-arrays">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📋</span><h2>Arrays &amp; Slices</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Arrays and slices look similar but behave completely differently. Understanding the distinction — and why slices are almost always what you want — is essential Go.</p>
+
+        <h3>Arrays — value semantics, fixed size</h3>
+        <p>Arrays in Go are values, not pointers. Assigning one array to another copies all elements. The size is part of the type — <code>[3]int</code> and <code>[4]int</code> are distinct, incompatible types:</p>
+        <pre><code>a := [3]int{1, 2, 3}
+b := a        // b is a COPY — modifying b doesn't affect a
+b[0] = 99
+fmt.Println(a[0]) // still 1
+
+// Size is part of the type — these don't match
+var x [3]int
+var y [4]int
+// x = y  // compile error: cannot use y (type [4]int) as type [3]int
+
+// [...]float64 — compiler counts the elements
+array := [...]float64{7.0, 8.5, 9.1} // type: [3]float64</code></pre>
+        <p>Arrays are rarely used directly in Go code. They exist primarily as the backing store for slices. Use slices for almost everything.</p>
+
+        <h3>Slices — the real workhorse</h3>
+        <p>A slice is a three-word descriptor: a pointer to an element of an underlying array, a length, and a capacity. Slices are reference types — passing a slice to a function lets the function modify the original elements:</p>
+        <pre><code>s := []int{1, 2, 3, 4, 5}  // slice literal (NOT an array — no length in [])
+
+len(s)  // 5 — number of elements accessible
+cap(s)  // 5 — number of elements in underlying array from this point on
+
+// Slicing — creates a new slice header over the same array
+s2 := s[1:3]   // [2, 3] — len=2, cap=4 (shares backing array with s)
+s2[0] = 99     // modifies s too! s[1] is now 99
+
+// Mutations through a slice affect the backing array
+func double(nums []int) {
+    for i := range nums {
+        nums[i] *= 2 // modifies the original slice's backing array
+    }
+}
+nums := []int{1, 2, 3}
+double(nums)
+fmt.Println(nums) // [2 4 6]</code></pre>
+
+        <h3>append — the critical detail</h3>
+        <p><code>append</code> adds elements to a slice and returns the result. If capacity is sufficient it reuses the backing array; if not, it allocates a new, larger array. You <strong>must</strong> use the returned slice:</p>
+        <pre><code>s := []int{1, 2, 3}
+s = append(s, 4)          // must reassign — append may return a new slice
+s = append(s, 5, 6, 7)    // append multiple elements
+s = append(s, other...)   // append another slice (spread with ...)
+
+// Why you must use the return value:
+func broken(s []int) {
+    append(s, 99) // BUG: result discarded — s is unchanged outside
+}
+func correct(s []int) []int {
+    return append(s, 99) // caller must use the returned slice
+}</code></pre>
+        <div class="note note-warning">
+          <strong>Subtle sharing bug:</strong> two slices sharing a backing array can clobber each other when appended to — if capacity allows, <code>append</code> writes into the shared array without allocating. Use <code>copy</code> to get a fully independent slice when you need isolation.
+          <pre><code>a := []int{1, 2, 3, 4, 5}
+b := a[:3]          // shares backing array with a
+b = append(b, 99)   // cap(a)=5 so this writes into a[3]!
+fmt.Println(a)      // [1 2 3 99 5] — a was modified!
+
+// Fix: force a new backing array
+b = append(a[:3:3], 99) // three-index slice sets cap=3; append must allocate</code></pre>
+        </div>
+
+        <h3>copy</h3>
+        <pre><code>// copy(dst, src) — copies min(len(dst), len(src)) elements
+dst := make([]int, len(src))
+copy(dst, src) // independent copy of src
+
+// Copy a portion
+copy(dst[5:], src[3:7])</code></pre>
+
+        <h3>2D slices</h3>
+        <pre><code>// Slice of slices — each row can have different length
+rows := make([][]int, 3)
+for i := range rows {
+    rows[i] = make([]int, 4)
+}
+
+// Single allocation, sliced into rows (more efficient for uniform size)
+flat := make([]int, 3*4)
+grid := make([][]int, 3)
+for i := range grid {
+    grid[i] = flat[i*4 : (i+1)*4]
+}</code></pre>
+      </div>
+    </div>
+
+    <div class="section" data-id="maps-printing">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🗺️</span><h2>Maps &amp; fmt</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Maps and the <code>fmt</code> package are things you use constantly. Getting the idioms right saves hours of confusion.</p>
+
+        <h3>Maps</h3>
+        <p>Maps are unordered hash tables. The key type must support equality (<code>==</code>) — slices and maps cannot be keys; structs and arrays can. Maps are reference types: passing a map to a function lets it modify the original:</p>
+        <pre><code>// Initialization
+m := map[string]int{}          // empty map, ready to write
+m  = make(map[string]int)       // equivalent
+m  = map[string]int{            // map literal
+    "alice": 42,
+    "bob":   7,
+}
+
+// Read — returns zero value if key absent
+n := m["charlie"]  // 0 — no error, no panic
+
+// The comma-ok idiom — distinguish zero from absent
+n, ok := m["charlie"]
+if ok {
+    fmt.Println("found:", n)
+} else {
+    fmt.Println("not found")
+}
+
+// Common pattern — init on first access
+counts := map[string]int{}
+counts["word"]++  // safe: missing key returns 0, then we store 1
+
+// Delete
+delete(m, "alice") // safe even if "alice" doesn't exist
+
+// Iterate (order is deliberately random — don't rely on it)
+for k, v := range m {
+    fmt.Println(k, v)
+}
+
+// Map as a set
+seen := map[string]bool{}
+seen["alice"] = true
+if seen["alice"] { ... }</code></pre>
+        <div class="note note-warning">
+          Iteration order over maps is deliberately randomized in each run. Go intentionally varies the order to prevent code from accidentally depending on it. If you need sorted output, collect the keys into a slice and sort it first.
+          <pre><code>keys := make([]string, 0, len(m))
+for k := range m {
+    keys = append(keys, k)
+}
+sort.Strings(keys)
+for _, k := range keys {
+    fmt.Println(k, m[k])
+}</code></pre>
+        </div>
+
+        <h3>fmt verbs</h3>
+        <p>The <code>%v</code> family is the most useful set of verbs in Go:</p>
+        <pre><code>type Point struct{ X, Y int }
+p := &Point{1, 2}
+
+fmt.Printf("%v\n",  p)  // &{1 2}         — default format
+fmt.Printf("%+v\n", p)  // &{X:1 Y:2}     — with field names
+fmt.Printf("%#v\n", p)  // &main.Point{X:1, Y:2}  — Go syntax
+fmt.Printf("%T\n",  p)  // *main.Point    — type of value
+
+// Essential verbs
+// %d  integer           %f  float          %s  string (unquoted)
+// %q  quoted string     %x  hex            %b  binary
+// %p  pointer address   %v  default        %e  scientific notation
+// %t  bool              %c  character
+
+// %v for everything — slices, maps, structs all print nicely
+fmt.Printf("%v\n", []int{1,2,3})          // [1 2 3]
+fmt.Printf("%v\n", map[string]int{"a":1}) // map[a:1]</code></pre>
+
+        <h3>Stringer — custom formatting</h3>
+        <p>Any type that implements <code>String() string</code> controls how it prints when passed to <code>fmt</code> functions:</p>
+        <pre><code>type Direction int
+
+const (
+    North Direction = iota
+    East
+    South
+    West
+)
+
+func (d Direction) String() string {
+    return [...]string{"North", "East", "South", "West"}[d]
+}
+
+fmt.Println(North)    // "North" — uses String()
+fmt.Printf("%v\n", South) // "South"</code></pre>
+        <div class="note note-danger">
+          <strong>Stringer recursion trap:</strong> calling <code>Sprintf("%s", m)</code> inside a <code>String()</code> method where the receiver type is <code>m</code> will recurse infinitely — <code>%s</code> triggers <code>String()</code>. Convert to the base type first:
+          <pre><code>type MyString string
+
+// BROKEN — infinite recursion
+func (m MyString) String() string {
+    return fmt.Sprintf("MyString=%s", m) // %s calls String() again
+}
+
+// CORRECT — convert to plain string first
+func (m MyString) String() string {
+    return fmt.Sprintf("MyString=%s", string(m)) // string(m) has no String()
+}</code></pre>
+        </div>
+
+        <h3>Printing to any Writer</h3>
+        <pre><code>// fmt.Fprintf writes to any io.Writer — not just stdout
+fmt.Fprintf(os.Stderr, "error: %v\n", err)
+fmt.Fprintf(w, "HTTP response body")     // w is http.ResponseWriter
+fmt.Fprintf(&buf, "building: %s", name)  // buf is bytes.Buffer
+
+// fmt.Sprintf returns a string — no Writer needed
+msg := fmt.Sprintf("user %d not found", userID)</code></pre>
+      </div>
+    </div>
+
+    <!-- Resources -->
+    <div class="section" style="border-style:dashed;">
+      <div class="section-header" style="border-bottom:none;">
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
+      </div>
+      <div class="section-body">
+        <div class="resource-list">
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">Effective Go — Control Structures</div><div class="resource-author">go.dev/doc/effective_go#control-structures</div><div class="resource-desc">The source material for this section. Read the full for, switch, and redeclaration sections — Go's rationale for design decisions like no automatic fallthrough is explained here.</div></div></div>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">Effective Go — Data</div><div class="resource-author">go.dev/doc/effective_go#allocation_new</div><div class="resource-desc">New, make, arrays, slices, maps, and printing — all covered with the rationale behind each design. The slices section in particular is worth reading multiple times.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Go Slices: Usage and Internals</div><div class="resource-author">go.dev/blog/slices-intro</div><div class="resource-desc">The canonical deep-dive on slice internals, the three-word descriptor, append mechanics, and the sharing/copy distinction. Required reading for anyone writing non-trivial Go.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Arrays, slices (and strings): The mechanics of 'append'</div><div class="resource-author">go.dev/blog/slices</div><div class="resource-desc">The deeper follow-up from Rob Pike. Covers append internals, copy, and the three-index slice for controlling capacity. Explains the sharing bug and how to avoid it.</div></div></div>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">fmt package docs</div><div class="resource-author">pkg.go.dev/fmt</div><div class="resource-desc">The complete list of format verbs. The "Printing" section at the top is a dense but complete reference — bookmark it. The section on Stringer and GoStringer is especially useful.</div></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <a href="go-fundamentals.html">← Go Fundamentals</a>
+    <a href="../go.html" class="center">All modules</a>
+    <a href="go-concurrency.html">Concurrency →</a>
+  </div>
+</footer>
+
+<script src="../js/app.js"></script>
+<script src="../js/highlight.js"></script>
+<script>
+  initSections('go-control-data');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
+</script>
+</body>
+</html>

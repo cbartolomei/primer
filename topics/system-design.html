@@ -10,16 +10,13 @@
   <link rel="stylesheet" href="../css/style.css">
 </head>
 <body>
-
 <header class="site-header">
   <div class="inner">
-    <a href="../index.html" class="header-back">← Back</a>
-    <span class="site-logo">pri<span>m</span>er</span>
+    <a href="../backend.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
     <div class="header-progress">
-      <div class="progress-bar-wrap">
-        <div class="progress-bar" id="topic-progress-bar" style="width:0%"></div>
-      </div>
-      <div class="progress-label" id="topic-progress-label">0 / 12 concepts covered</div>
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 4 sections understood</div>
     </div>
   </div>
 </header>
@@ -27,318 +24,201 @@
 <main class="container">
   <div class="page-hero">
     <h1>🏗️ System Design</h1>
-    <p class="subtitle">Scaling, load balancing, distributed systems theory, resilience patterns, and microservices.</p>
+    <p class="subtitle">How to think about building systems that scale, survive failures, and stay maintainable as they grow.</p>
   </div>
 
   <div class="topic-content">
 
-    <!-- SCALING FUNDAMENTALS -->
-    <div class="section">
+    <!-- SECTION 1: SCALING & LOAD BALANCING -->
+    <div class="section" data-id="scaling">
       <div class="section-header">
-        <span class="section-icon">📈</span>
-        <h2>Scaling Fundamentals</h2>
+        <div class="section-header-left"><span class="section-icon">📈</span><h2>Scaling &amp; Load Balancing</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
-        <ul class="checklist">
+        <p>Scaling is what you do when a single machine can no longer handle your load. There are two axes: <strong>vertical scaling</strong> (bigger machine — more CPU, RAM, faster disk) and <strong>horizontal scaling</strong> (more machines). Vertical is simple — no code changes needed — but it has a hard ceiling, costs grow superlinearly at the top end, and the machine is still a single point of failure. Horizontal scales to near-arbitrary limits with good fault tolerance, but it requires your services to be <em>stateless</em>: any instance must be able to handle any request. Session state must live outside the process — in Redis or a database.</p>
 
-          <li class="check-item" data-id="horizontal-vertical">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Horizontal vs Vertical Scaling</div>
-              <div class="check-item-desc">
-                <strong>Vertical (scale-up):</strong> bigger machine — more CPU, RAM. Simple (no code changes), but has an upper bound, expensive at the top end, and is a single point of failure.
-                <strong>Horizontal (scale-out):</strong> more machines behind a load balancer. Scales to near-arbitrary limits, better fault tolerance, but requires <em>stateless</em> services — session state must live outside the instance (Redis, DB). Good for auto-scaling with cloud providers.
-                Database vertical scaling buys time; horizontal scaling of writes requires sharding or a distributed DB.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="load-balancing">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Load Balancing</div>
-              <div class="check-item-desc">
-                Algorithms: <strong>Round Robin</strong> (simple, ignores load), <strong>Least Connections</strong> (good for variable request duration), <strong>IP Hash / Sticky Sessions</strong> (same client → same server, needed for stateful connections), <strong>Weighted</strong> (route more to powerful instances), <strong>Random</strong>.
-                <strong>L4 (Transport):</strong> routes based on IP/TCP — fast, no app awareness. <strong>L7 (Application):</strong> routes based on HTTP headers, URL paths, cookies — enables content-based routing, SSL termination, WebSocket upgrades. AWS: ALB (L7), NLB (L4).
-                <strong>Health checks:</strong> passive (detect failures by observing traffic) + active (periodic HTTP probe to <code>/health</code>). Remove unhealthy nodes from rotation.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="consistent-hashing">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Consistent Hashing</div>
-              <div class="check-item-desc">
-                Problem with modulo hashing: adding/removing 1 node out of N remaps ~N-1/N of keys — catastrophic cache invalidation.
-                Consistent hashing: nodes and keys are placed on a hash ring (0 to 2³²). A key maps to the next node clockwise. Adding/removing a node only moves O(1/N) of keys.
-                <strong>Virtual nodes:</strong> each physical node gets K virtual nodes on the ring, improving distribution and handling heterogeneous node sizes.
-                Used in: DynamoDB, Cassandra, Redis Cluster, Memcached client libraries (Ketama).
-              </div>
-            </div>
-          </li>
-
+        <h3>Load Balancing</h3>
+        <p>A load balancer sits in front of your fleet and distributes incoming requests. The two main layers:</p>
+        <ul>
+          <li><strong>Layer 4 (transport)</strong>: routes based on TCP/UDP headers — IP, port. Fast, low overhead, blind to HTTP content. Used for raw throughput.</li>
+          <li><strong>Layer 7 (application)</strong>: inspects HTTP — can route by path, host header, or cookie. Enables <em>sticky sessions</em> (pin a user to one backend by cookie), A/B routing, and canary deployments. Nginx, HAProxy, AWS ALB, Envoy all operate here.</li>
         </ul>
+        <p>Common balancing algorithms: <strong>round-robin</strong> (default, simple), <strong>least connections</strong> (better for variable request duration — long-running requests skew round-robin), <strong>IP hash</strong> (consistent routing per client IP — deterministic but breaks if a backend goes down), <strong>weighted</strong> (send more traffic to beefier backends).</p>
+        <p>Health checks are how the load balancer knows which backends are alive. Active checks hit a <code>/health</code> endpoint every few seconds; passive checks detect connection failures and timeouts on real traffic. A backend fails N consecutive checks → removed from rotation. Recovers M consecutive → re-added. Tune these thresholds: too aggressive and you flap; too loose and you route to dead backends.</p>
+
+        <figure class="diagram">
+          <img src="../images/system-design/load-balancer.png" alt="Load balancer distributing traffic across multiple backend servers">
+          <figcaption>A load balancer distributes requests across a fleet of backends, removing failed instances from rotation. Horizontal scaling requires services to be stateless — session state lives in Redis or a database, not the instance.</figcaption>
+        </figure>
+
+        <h3>Reverse Proxy</h3>
+        <p>A reverse proxy sits in front of your servers and intercepts client requests before they reach your application. Unlike a load balancer (which focuses on distributing load), a reverse proxy has a broader role: SSL termination, compression, caching static content, request/response transformation, and rate limiting — all before the request touches your app code. Nginx and Caddy are the most common choices. In practice, the reverse proxy and load balancer roles often overlap: Nginx can do both.</p>
+
+        <figure class="diagram">
+          <img src="../images/system-design/reverse-proxy.png" alt="Reverse proxy sitting between clients and backend servers, handling SSL, caching, and routing">
+          <figcaption>A reverse proxy handles cross-cutting concerns (TLS termination, compression, caching) before requests reach backend servers. It also hides the internal topology — clients only ever see the proxy's address.</figcaption>
+        </figure>
+
+        <h3>Stateless Services &amp; the Session Problem</h3>
+        <p>Sticky sessions solve the session problem by routing the same user to the same backend. But if that backend dies, the user's session is lost — and you've negated horizontal scaling's fault tolerance. The better pattern: store sessions externally (Redis) from day one. Then any backend can handle any request. The load balancer becomes a pure throughput problem, not a routing problem.</p>
+
+        <h3>Database Scaling</h3>
+        <p>Horizontally scaling stateless app servers is straightforward. Databases are harder. The progression:</p>
+        <ol>
+          <li><strong>Vertical first</strong>: Buy time. Add RAM for bigger buffer pool, faster SSDs for I/O.</li>
+          <li><strong>Read replicas</strong>: Offload read traffic. Replication lag is the tradeoff — replicas are slightly behind. Never read from a replica for data you just wrote (post-write redirect problem).</li>
+          <li><strong>Connection pooling</strong>: PgBouncer in front of Postgres multiplexes many app connections into few database connections. Databases are expensive about connections; apps are not. This buys significant headroom before you need more DB capacity.</li>
+          <li><strong>Caching layer</strong>: Redis or Memcached in front of the DB for reads. Cache invalidation is the hard part — see the Caching module.</li>
+          <li><strong>Sharding</strong>: Partition data across multiple databases. Each shard owns a subset of rows (by user_id hash, geographic region, etc.). Dramatically increases write throughput. But cross-shard joins become impossible, foreign keys disappear, and rebalancing data when you add shards is painful. Only when everything else is exhausted.</li>
+        </ol>
+
+        <h3>Consistent Hashing</h3>
+        <p>A naive sharding approach — <code>server = hash(key) % N</code> — breaks whenever N changes. Add or remove one server and almost every key maps to a different server. In a cache cluster, this means a near-total cache miss storm. In a database cluster, it means a massive data migration.</p>
+        <p>Consistent hashing solves this. Keys and servers are both placed on a conceptual "hash ring" (a circle of 0–2³²). To find which server owns a key, walk clockwise on the ring until you hit a server. When you add a server, it only takes ownership of keys from its clockwise neighbor — only those keys need to move. When you remove a server, its keys move to the next server clockwise. On average, adding one server to an N-server ring only requires remapping 1/N of the keys.</p>
+        <p>Used in: DynamoDB, Cassandra, Redis Cluster, Akamai CDN, Google's load balancers. Real implementations add <strong>virtual nodes</strong> — each physical server maps to multiple positions on the ring — to prevent uneven load distribution when servers have different capacities or when N is small.</p>
+
+        <figure class="diagram">
+          <img src="../images/system-design/consistent-hashing.png" alt="Consistent hashing ring with servers and keys placed around the circumference">
+          <figcaption>Consistent hashing places both keys and servers on a ring. Adding server S4 only displaces K0 — keys already closest to S4. All other keys (K1, K2, K3) stay on their existing servers.</figcaption>
+        </figure>
+
+        <h3>CDN &amp; Edge</h3>
+        <p>A Content Delivery Network moves static assets (JS, CSS, images) to nodes geographically close to users. The origin serves once; the CDN edge caches and serves all subsequent requests. Latency drops dramatically for global users. For dynamic content, CDNs can also terminate TLS and route to your nearest region, reducing round-trip time even when they can't cache the response.</p>
       </div>
     </div>
 
-    <!-- DISTRIBUTED SYSTEMS THEORY -->
-    <div class="section">
+    <!-- SECTION 2: DISTRIBUTED SYSTEMS THEORY -->
+    <div class="section" data-id="distributed-theory">
       <div class="section-header">
-        <span class="section-icon">🌐</span>
-        <h2>Distributed Systems Theory</h2>
+        <div class="section-header-left"><span class="section-icon">🌐</span><h2>Distributed Systems Theory</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
-        <ul class="checklist">
+        <p>Understanding the theoretical constraints of distributed systems saves you from designing systems that are impossible to build, and helps you explain the tradeoffs in the ones you do build.</p>
 
-          <li class="check-item" data-id="cap-theorem">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">CAP Theorem</div>
-              <div class="check-item-desc">
-                In a distributed system that may experience network partitions, you can guarantee at most two of:
-                <strong>Consistency</strong> (every read returns the most recent write or an error),
-                <strong>Availability</strong> (every request gets a non-error response),
-                <strong>Partition Tolerance</strong> (system works despite network partition).
-                Since partitions <em>will</em> happen, the real choice is <strong>CP vs AP</strong>.
-                <strong>CP systems</strong> (reject requests during partition to preserve consistency): ZooKeeper, HBase, etcd.
-                <strong>AP systems</strong> (remain available, serve possibly stale data): Cassandra, DynamoDB, CouchDB.
-                PACELC extends CAP: even without partitions, there's a latency vs consistency tradeoff.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="rate-limiting">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Rate Limiting Algorithms</div>
-              <div class="check-item-desc">
-                <strong>Token Bucket:</strong> tokens added at rate R, bucket capacity B. Each request consumes 1 token. Allows bursts up to B. Most flexible — used by AWS, Stripe.
-                <strong>Leaky Bucket:</strong> requests fill a bucket; processed at a constant rate (like a leaky container). Smooths bursts but queues them — adds latency. Bad for real-time.
-                <strong>Fixed Window:</strong> count requests per minute. Simple but vulnerable to boundary bursts (2× the limit across a window boundary).
-                <strong>Sliding Window Log:</strong> record timestamp of each request; count within rolling window. Accurate but memory-intensive.
-                <strong>Sliding Window Counter:</strong> current_window_count + (prev_window_count × % remaining in current window). Good approximation with low memory.
-                Distributed rate limiting: store counts in Redis (atomic INCR); use Lua scripts for atomicity.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="circuit-breaker">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Circuit Breaker</div>
-              <div class="check-item-desc">
-                Prevents cascade failures when a downstream service is failing. Three states:
-                <strong>Closed:</strong> normal operation, requests pass through; failure count tracked.
-                <strong>Open:</strong> failure threshold exceeded; requests fail fast (no call to downstream). After a timeout, moves to Half-Open.
-                <strong>Half-Open:</strong> allow a probe request through; if it succeeds, close the breaker; if it fails, reopen.
-                Always combine with <strong>timeouts</strong> (don't wait forever for a slow dependency) and <strong>retries with exponential backoff + jitter</strong> (avoid synchronized retry storms).
-                Libraries: Hystrix (deprecated), Resilience4j (Java), polly (.NET), opossum (Node).
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="api-gateway">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">API Gateway</div>
-              <div class="check-item-desc">
-                Single entry point for all client requests. Responsibilities: SSL termination, authentication (validate JWT), authorization, rate limiting, request routing (path → service), load balancing, request/response transformation, observability (logging, tracing headers), circuit breaking.
-                <strong>Benefits:</strong> centralizes cross-cutting concerns, clients only talk to one endpoint.
-                <strong>Risks:</strong> becomes a bottleneck / SPOF if not HA; adds latency hop; can become a God object with too much logic.
-                Tools: Kong, AWS API Gateway, Nginx + Lua, Traefik, Envoy, APISIX.
-              </div>
-            </div>
-          </li>
-
+        <h3>CAP Theorem</h3>
+        <p>In a distributed system, you can guarantee at most two of three properties: <strong>Consistency</strong> (every read returns the most recent write), <strong>Availability</strong> (every request gets a response — not an error), and <strong>Partition Tolerance</strong> (the system keeps operating if the network splits).</p>
+        <p>Networks fail. Partition tolerance is not optional — you'll always face network splits in production. So the real choice is: when a partition occurs, do you sacrifice <em>consistency</em> (serve possibly stale reads, keep responding) or <em>availability</em> (refuse to respond until you're sure you have current data)?</p>
+        <ul>
+          <li><strong>CP systems</strong>: HBase, Zookeeper, etcd. Return an error if they can't guarantee consistent data. Correct for: financial systems, configuration stores, leader election.</li>
+          <li><strong>AP systems</strong>: Cassandra, DynamoDB, CouchDB. Always respond, might return stale data. Correct for: shopping carts, social feeds, anything where eventual consistency is acceptable.</li>
         </ul>
-      </div>
-    </div>
+        <p>CAP is often misapplied as a choice you make at design time. It's actually a choice you make at runtime, during a failure. Design your system knowing which side it falls on and what that means for users.</p>
 
-    <!-- ADVANCED PATTERNS -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-icon">🔮</span>
-        <h2>Advanced Patterns</h2>
-      </div>
-      <div class="section-body">
-        <ul class="checklist">
+        <figure class="diagram">
+          <img src="../images/system-design/cap-theorem.png" alt="CAP theorem: three overlapping circles for Consistency, Availability, Partition Tolerance">
+          <figcaption>CAP theorem. Since partition tolerance is non-negotiable in real distributed systems, the real tradeoff is CP vs AP — consistency or availability when the network splits.</figcaption>
+        </figure>
 
-          <li class="check-item" data-id="cqrs">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">CQRS</div>
-              <div class="check-item-desc">
-                <strong>Command Query Responsibility Segregation:</strong> separate the write model (commands that change state) from the read model (queries that return data). Each can use the most appropriate data store — writes to a normalized relational DB, reads from a denormalized read-optimized store (Elasticsearch, Redis, materialized views).
-                The read model is kept in sync via events or DB triggers (eventual consistency).
-                <strong>When to use:</strong> high read/write ratio imbalance, complex domain logic, need for audit trails. Don't use it everywhere — adds significant complexity.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="event-sourcing">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Event Sourcing</div>
-              <div class="check-item-desc">
-                Store the <em>sequence of events</em> that led to the current state, not just the current state. State is derived by replaying events.
-                <strong>Benefits:</strong> complete audit log (compliance-friendly), time-travel debugging (replay up to any point in time), natural event-driven architecture, rebuild any read model from the event log.
-                <strong>Challenges:</strong> event schema evolution (can't easily change past events), eventual consistency (read models lag), high disk usage for long-lived aggregates (snapshots help), mental model shift.
-                Often paired with CQRS. Used in banking, audit systems, collaborative tools (like Google Docs).
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="saga">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Saga Pattern</div>
-              <div class="check-item-desc">
-                Distributed transactions without 2-Phase Commit (2PC is blocking and doesn't work across microservices).
-                A saga is a sequence of local transactions. Each step publishes an event that triggers the next. On failure, <em>compensating transactions</em> undo completed steps.
-                <strong>Choreography:</strong> services react to events autonomously — no central coordinator. Decoupled but hard to track, hard to debug, circular dependencies possible.
-                <strong>Orchestration:</strong> a central saga orchestrator issues commands to participants and handles failures. Easier to reason about but introduces coupling to the orchestrator. Temporal.io is a popular workflow engine for orchestrated sagas.
-              </div>
-            </div>
-          </li>
-
+        <h3>Consistency Models</h3>
+        <p>Consistency exists on a spectrum. From strongest to weakest:</p>
+        <ul>
+          <li><strong>Linearizability (strong consistency)</strong>: operations appear instantaneous and in a single global order. Reads always see the latest write. Expensive — requires coordination. What most people mean when they say "consistent."</li>
+          <li><strong>Sequential consistency</strong>: all processes see operations in the same order, but that order needn't match wall clock time. Weaker than linearizability, still requires global coordination.</li>
+          <li><strong>Eventual consistency</strong>: if no new writes occur, all replicas will eventually converge to the same value. No guarantee on when. Used by most NoSQL systems. Simple to implement, hard to reason about in application logic.</li>
+          <li><strong>Causal consistency</strong>: operations that are causally related appear in causal order. Causally unrelated operations may appear in any order. Stronger than eventual, weaker than sequential. MongoDB's sessions and Cosmos DB use this.</li>
         </ul>
+
+        <h3>PACELC</h3>
+        <p>A more complete model than CAP. During a partition (P), choose Availability vs Consistency (A vs C) — same as CAP. Else (E), during normal operation, choose Latency vs Consistency (L vs C). Most systems trade latency for consistency even when not partitioned (replication takes time). Cassandra is PA/EL: always available, always low latency. HBase is PC/EC: consistent even at latency cost.</p>
+
+        <h3>Distributed Consensus</h3>
+        <p><strong>Raft</strong> and <strong>Paxos</strong> are the two main consensus algorithms — the mechanism by which a cluster of nodes agrees on a single value despite failures. Both require a majority quorum (⌊N/2⌋ + 1 nodes) to make progress. With 3 nodes you can tolerate 1 failure; with 5 nodes, 2 failures. Raft is easier to understand and implement; Paxos is older and theoretically richer. etcd (used by Kubernetes) uses Raft. These algorithms underpin any system that needs leader election, distributed locks, or replicated state machines.</p>
+
+        <h3>Clocks Are Lies</h3>
+        <p>Physical clocks in distributed systems drift, jump (NTP sync), and are unreliable for ordering events. Don't use wall-clock timestamps to determine ordering across nodes — you will eventually have events that appear to go backward. Solutions: <strong>Lamport clocks</strong> (logical counters that capture happened-before relationships), <strong>vector clocks</strong> (per-node counters that track causality), or <strong>hybrid logical clocks</strong> (HLC — combine physical and logical). Google Spanner uses atomic clocks and GPS to provide TrueTime, bounding clock uncertainty to ~7ms.</p>
       </div>
     </div>
 
-    <!-- MICROSERVICES -->
-    <div class="section">
+    <!-- SECTION 3: RESILIENCE PATTERNS -->
+    <div class="section" data-id="resilience">
       <div class="section-header">
-        <span class="section-icon">🧱</span>
-        <h2>Microservices</h2>
+        <div class="section-header-left"><span class="section-icon">🛡️</span><h2>Resilience Patterns</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
-        <ul class="checklist">
+        <p>Distributed systems fail. Networks drop packets, disks fill, memory leaks accumulate, dependencies have outages. Resilience patterns are about designing for failure as a first-class concern — so that partial failures don't cascade into total failures.</p>
 
-          <li class="check-item" data-id="microservices">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Microservices vs Monolith</div>
-              <div class="check-item-desc">
-                <strong>Microservices pros:</strong> independent deployment, language/tech diversity per service, fault isolation, team autonomy (each team owns their service), scales individual components.
-                <strong>Microservices cons:</strong> distributed systems complexity (network latency, partial failure), data consistency across services, operational overhead (deploy N services, not 1), observability harder (traces span services).
-                <strong>When to start:</strong> strong default to monolith first — simpler to build, refactor, and test. Extract services when a clear seam emerges (team ownership, independent scaling need, different SLAs).
-                <strong>Service mesh</strong> (Istio, Linkerd): handles mTLS between services, retries, circuit breaking, tracing — via sidecar proxy, not app code.
-              </div>
-            </div>
-          </li>
-
-          <li class="check-item" data-id="service-discovery">
-            <input type="checkbox">
-            <div class="check-item-content">
-              <div class="check-item-title">Service Discovery</div>
-              <div class="check-item-desc">
-                How services find each other in dynamic environments where IPs change constantly.
-                <strong>Client-side discovery:</strong> service queries a registry (Consul, Eureka) and picks an instance. Client does the load balancing. Coupling: client needs registry SDK.
-                <strong>Server-side discovery:</strong> client calls a load balancer/router, which queries the registry. Client stays simple. Kubernetes Services work this way — stable DNS name + kube-proxy handles routing.
-                <strong>DNS-based:</strong> <code>my-service.namespace.svc.cluster.local</code> in Kubernetes. Simple and universal.
-              </div>
-            </div>
-          </li>
-
+        <h3>Circuit Breaker</h3>
+        <p>A circuit breaker wraps calls to a dependency. It has three states:</p>
+        <ul>
+          <li><strong>Closed</strong>: normal operation, calls pass through, failures are counted.</li>
+          <li><strong>Open</strong>: failure threshold exceeded. Calls fail immediately without hitting the dependency. The downstream service gets a break; your service gets fast failure instead of waiting for timeouts.</li>
+          <li><strong>Half-open</strong>: after a recovery window, let a probe request through. If it succeeds, close the circuit. If it fails, reopen.</li>
         </ul>
+        <p>Without a circuit breaker, a slow dependency causes request queues to back up, threads/goroutines to accumulate waiting on timeouts, and eventually your service exhausts its own resources — a cascading failure. The circuit breaker bounds this by failing fast. Libraries: Netflix Hystrix (deprecated), Resilience4j (Java), <code>circuitbreaker</code> in Go's <code>github.com/sony/gobreaker</code>.</p>
+
+        <h3>Retry with Exponential Backoff &amp; Jitter</h3>
+        <p>Retrying immediately after a failure often makes things worse — you're hammering an already-struggling dependency. Exponential backoff spaces retries out: wait 1s, then 2s, then 4s, then 8s. Add <strong>jitter</strong> (random ±30% on the interval) to prevent the thundering herd: if 1000 clients all start retrying at exactly the same intervals, they hit the recovering service in synchronized waves, repeatedly overloading it. Jitter breaks the synchronization.</p>
+        <pre><code>// Exponential backoff with full jitter
+const delay = Math.min(cap, base * 2 ** attempt);
+const jitter = delay * Math.random();
+await sleep(jitter);</code></pre>
+        <p>Only retry idempotent operations. Retrying a payment charge or an email send without idempotency keys will cause duplicates.</p>
+
+        <h3>Bulkhead</h3>
+        <p>Named after ship compartments — if one fills with water, it doesn't sink the whole ship. In software: isolate resource pools per dependency. Give each downstream service its own thread pool or connection pool. If the inventory service hangs and exhausts its 20-thread pool, it doesn't starve the thread pool serving checkout or search. Without bulkheads, one slow dependency can claim all your worker threads and take down every API endpoint.</p>
+
+        <h3>Timeout — The Overlooked Essential</h3>
+        <p>Every network call must have a timeout. Without one, a single slow dependency can hold a thread indefinitely. Set timeouts at three levels: connect timeout (how long to wait for TCP connection), read timeout (how long to wait for response bytes), and end-to-end deadline propagation (if a user request has a 2s budget, each downstream call should receive a deadline reflecting the remaining budget — not a fixed 5s). gRPC and HTTP/2 have first-class deadline propagation. HTTP/1.1 requires you to do this manually via headers or context.</p>
+
+        <h3>Fallback &amp; Graceful Degradation</h3>
+        <p>When a dependency is unavailable, don't crash — degrade. Return cached data, defaults, or a reduced-functionality response. A recommendation service being down should not prevent the homepage from loading — show no recommendations, or static trending items. Define this behavior explicitly for every external dependency your service calls. The alternative (uncaught exceptions propagating to the user) is always worse than a graceful fallback.</p>
+
+        <h3>Idempotency</h3>
+        <p>An operation is idempotent if calling it multiple times has the same effect as calling it once. GET, PUT, DELETE are idempotent by HTTP semantics. POST is not. When building APIs that transfer money, send notifications, or provision resources: generate an <strong>idempotency key</strong> on the client side (UUID v4), send it as a header or body field, and have the server deduplicate based on it. Store seen keys with a TTL in Redis. Idempotency keys are the correct solution to "what if my POST request succeeds but my client doesn't get the response and retries?"</p>
       </div>
     </div>
 
-    <!-- Q&A -->
-    <div class="section">
+    <!-- SECTION 4: ARCHITECTURE PATTERNS -->
+    <div class="section" data-id="architecture">
       <div class="section-header">
-        <span class="section-icon">🧠</span>
-        <h2>Quick Review</h2>
+        <div class="section-header-left"><span class="section-icon">🧩</span><h2>Architecture Patterns</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
       </div>
       <div class="section-body">
+        <p>These are the high-level structural patterns that recur across different systems. Knowing them by name lets you discuss tradeoffs precisely.</p>
 
-        <details class="qa">
-          <summary>In a system design interview, how do you estimate QPS and storage?</summary>
-          <div class="qa-body">
-            <p>Quick back-of-envelope numbers to memorize:</p>
-            <ul>
-              <li>1M users × 10 requests/day ÷ 86,400 sec/day ≈ <strong>~115 QPS</strong></li>
-              <li>1 KB average request → 115 QPS × 1 KB = <strong>~115 KB/s</strong> throughput</li>
-              <li>1M users × 10 writes/day × 1 KB = <strong>10 GB/day</strong> → ~3.6 TB/year</li>
-              <li>Latency targets: p50 &lt; 100ms, p99 &lt; 500ms is a common starting point for APIs</li>
-              <li>A single-core machine handles ~10K–50K simple HTTP requests/sec; DB reads ~5K–50K QPS</li>
-            </ul>
-            <p>Always clarify: DAU vs MAU, read:write ratio, expected data size per entity, consistency requirements.</p>
-          </div>
-        </details>
+        <h3>Monolith vs. Microservices</h3>
+        <p>A monolith is a single deployable unit. All modules live in one process, share a database, and communicate via function calls. Operational simplicity, easy local development, no network latency between components. The problem is coupling: a change to the payment module requires deploying the entire application, and a bug in one module can crash all of them.</p>
+        <p>Microservices split the monolith into independent services, each owning its data store and deployable on its own. They enable independent scaling, independent deployment, and technology heterogeneity. They introduce distributed systems complexity: network calls fail, data consistency across service boundaries requires eventual consistency or sagas, and operational overhead (12 services × 3 replicas = 36 pods to manage).</p>
+        <p>The pragmatic heuristic: start monolith, extract services when a module has genuinely different scaling requirements, different deployment cadence, or a team ownership boundary. Don't start with microservices on a new product — you don't yet know where the right seams are.</p>
 
-        <details class="qa">
-          <summary>Why is 2-Phase Commit (2PC) problematic in microservices?</summary>
-          <div class="qa-body">
-            <p>2PC requires a coordinator to drive two phases: (1) prepare — all participants say "ready to commit", (2) commit — coordinator tells all to commit. Problems:</p>
-            <ul>
-              <li><strong>Blocking:</strong> if the coordinator crashes after prepare but before commit, participants are stuck holding locks indefinitely</li>
-              <li><strong>Single point of failure:</strong> coordinator crash halts the whole transaction</li>
-              <li><strong>Network assumption:</strong> assumes all participants are reachable — violates real-world partition scenarios</li>
-              <li><strong>Latency:</strong> two full round-trips, all participants must wait for the slowest</li>
-            </ul>
-            <p>The Saga pattern avoids these by using local transactions + compensating actions instead of distributed locking.</p>
-          </div>
-        </details>
+        <h3>Event-Driven Architecture</h3>
+        <p>Services communicate via events on a message bus (Kafka, RabbitMQ, SNS+SQS). The publisher emits an event ("order placed") without knowing who consumes it. Consumers subscribe and react independently. Benefits: loose coupling (publisher and consumer evolve independently), natural audit log, easy to add new consumers. Costs: eventual consistency (the email service sends the confirmation after a delay), harder to debug (no call stack across service boundaries), schema evolution requires care (old consumers receive new event formats).</p>
+        <p>The event-driven pattern is a good fit when: downstream actions are non-critical to the primary flow, multiple services need to react to the same event, or you need an audit trail.</p>
 
-        <details class="qa">
-          <summary>What's the difference between latency and throughput, and how do they interact?</summary>
-          <div class="qa-body">
-            <p><strong>Latency:</strong> time for a single request to complete (ms). Report as percentiles: p50, p95, p99, p999 — not averages (averages hide tail latency).</p>
-            <p><strong>Throughput:</strong> requests per second the system can handle.</p>
-            <p>They interact: Little's Law: <code>L = λW</code> (avg queue length = arrival rate × avg wait time). At high throughput approaching capacity, queues build up and latency degrades non-linearly. Rule of thumb: keep utilization below 70–80% to avoid queue buildup. The Universal Scalability Law (USL) models how adding resources diminishes returns due to contention and coherency overhead.</p>
-          </div>
-        </details>
+        <h3>CQRS &amp; Event Sourcing</h3>
+        <p><strong>CQRS (Command Query Responsibility Segregation)</strong>: separate the write model (commands that mutate state) from the read model (queries that return views). The write side stores normalized state; the read side maintains denormalized, query-optimized projections built from the write side's events. Enables separate scaling of reads and writes, and lets each side be optimized independently. Complexity cost: you now maintain two models and a synchronization mechanism.</p>
+        <p><strong>Event Sourcing</strong>: instead of storing current state, store the full sequence of events that led to that state. Current state is derived by replaying events. You get a complete audit log for free, the ability to replay events to reconstruct any historical state or build new projections, and natural temporal queries. The cost: eventual consistency for queries (projections are slightly behind), event schema evolution is hard (you can't change history), and storage grows unboundedly. Often paired with CQRS because the event log is the write model and projections are the read models.</p>
 
+        <h3>Saga Pattern</h3>
+        <p>Distributed transactions across microservices can't use a single ACID transaction — each service has its own database. The saga pattern replaces a distributed transaction with a sequence of local transactions, each of which publishes an event that triggers the next step. If a step fails, compensating transactions are executed to undo prior steps.</p>
+        <p>Two implementations: <strong>choreography</strong> (each service reacts to events and emits the next event — no central coordinator, simple but hard to track) and <strong>orchestration</strong> (a central saga orchestrator sends commands to each service and handles failures — easier to reason about, single point of control). Classic example: book hotel → charge credit card → reserve flight. If charge fails, cancel hotel booking.</p>
+
+        <h3>API Gateway &amp; BFF</h3>
+        <p>An API gateway is a single entry point for all client traffic. It handles: authentication (validate JWTs before any request reaches your services), rate limiting, request routing, protocol translation (REST → gRPC), SSL termination, and sometimes light request/response transformation. Kong, AWS API Gateway, Nginx, and Envoy are common choices.</p>
+        <p>A <strong>Backend for Frontend (BFF)</strong> is an API gateway specialized for a single client type (mobile app, web app, public API). Instead of one gateway serving all clients with different needs, each client type has its own BFF that aggregates and shapes data specifically for that client's requirements. A mobile app's BFF returns smaller payloads optimized for bandwidth; the web BFF returns richer data. Avoids the "generic API that no one loves" problem.</p>
+
+        <figure class="diagram">
+          <img src="../images/system-design/application-layer.png" alt="Application/platform layer separating web tier from service tier in a distributed architecture">
+          <figcaption>Separating the web tier from the application/service tier enables independent scaling. The web layer handles HTTP, TLS, and routing; the application layer holds business logic. Each can scale horizontally without affecting the other.</figcaption>
+        </figure>
       </div>
     </div>
 
-    <!-- RESOURCES -->
-    <div class="section">
+    <!-- GO DEEPER -->
+    <div class="section" style="border-style:dashed;">
       <div class="section-header">
-        <span class="section-icon">📚</span>
-        <h2>Go Deeper</h2>
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
       </div>
       <div class="section-body">
         <div class="resource-list">
-
-          <div class="resource">
-            <span class="resource-type book">book</span>
-            <div class="resource-content">
-              <div class="resource-title">Designing Data-Intensive Applications — Chapters 8–9</div>
-              <div class="resource-author">Martin Kleppmann — O'Reilly</div>
-              <div class="resource-desc">Chapters 8 (Trouble with Distributed Systems) and 9 (Consistency and Consensus) are the best explanations of CAP, linearizability, and distributed consensus in print. Dense but worth it.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type blog">blog</span>
-            <div class="resource-content">
-              <div class="resource-title">System Design Primer</div>
-              <div class="resource-author">Donne Martin — github.com/donnemartin/system-design-primer</div>
-              <div class="resource-desc">Comprehensive open-source reference covering all major system design topics with diagrams. Good as a reference and for interview prep.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type blog">blog</span>
-            <div class="resource-content">
-              <div class="resource-title">High Scalability</div>
-              <div class="resource-author">highscalability.com</div>
-              <div class="resource-desc">Real-world architecture case studies from companies like YouTube, Twitter, Dropbox, and WhatsApp explaining how they actually built and scaled their systems. Invaluable for grounding theory in practice.</div>
-            </div>
-          </div>
-
-          <div class="resource">
-            <span class="resource-type book">book</span>
-            <div class="resource-content">
-              <div class="resource-title">Release It! — Second Edition</div>
-              <div class="resource-author">Michael Nygard — Pragmatic Programmers</div>
-              <div class="resource-desc">The book on stability patterns: circuit breakers, bulkheads, timeouts, handshaking, backpressure. Written from hard-won production experience. Particularly good on cascade failures and how to design systems that degrade gracefully.</div>
-            </div>
-          </div>
-
+          <div class="resource"><span class="resource-type book">book</span><div class="resource-content"><div class="resource-title">Designing Data-Intensive Applications</div><div class="resource-author">Martin Kleppmann — O'Reilly</div><div class="resource-desc">The book for this entire module. Part II (Distributed Data) covers replication, partitioning, transactions, and consistency in depth that no blog post matches. Read chapters 5–9 for distributed systems theory.</div></div></div>
+          <div class="resource"><span class="resource-type book">book</span><div class="resource-content"><div class="resource-title">System Design Interview (Vol. 1 &amp; 2)</div><div class="resource-author">Alex Xu — ByteByteGo</div><div class="resource-desc">Practical worked examples of designing real systems (rate limiters, URL shorteners, notification systems, chat). Good for internalizing how the patterns combine. The ByteByteGo newsletter is also excellent.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">The System Design Primer</div><div class="resource-author">Donne Martin — github.com/donnemartin/system-design-primer</div><div class="resource-desc">Free, comprehensive. Best read as a reference — skim the index and read the sections that correspond to concepts you want to cement. The diagrams are particularly useful.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">AWS Architecture Blog &amp; High Scalability Blog</div><div class="resource-author">aws.amazon.com/blogs/architecture &amp; highscalability.com</div><div class="resource-desc">Real architecture decisions from real systems. High Scalability has write-ups on how Slack, Discord, Airbnb, and others scaled. Read how actual production systems solved the problems you're studying.</div></div></div>
         </div>
       </div>
     </div>
@@ -349,17 +229,15 @@
 <footer class="site-footer">
   <div class="module-nav">
     <a href="databases.html">← Databases</a>
-    <a href="../index.html" class="center">All modules</a>
+    <a href="../backend.html" class="center">All modules</a>
     <a href="caching.html">Caching →</a>
   </div>
 </footer>
 
 <script src="../js/app.js"></script>
 <script>
-  initChecklist('system-design');
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('../sw.js').catch(() => {});
-  }
+  initSections('system-design');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
 </script>
 </body>
 </html>

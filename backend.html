@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Backend Engineering — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <a href="index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="overall-progress-bar" style="width:0%"></div>
+      </div>
+      <div class="progress-label" id="overall-progress-label">loading…</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>Backend Engineering</h1>
+    <p class="subtitle">A self-contained backend engineering textbook. Read the concepts, check them off as they click, and use this offline whenever you need a reference.</p>
+    <div class="stat-row">
+      <div class="stat">
+        <div class="stat-value" id="stat-pct">0%</div>
+        <div class="stat-label">Overall</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-completed">0</div>
+        <div class="stat-label">Concepts covered</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-topics">0 / 9</div>
+        <div class="stat-label">Modules started</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="topic-grid"></div>
+</main>
+
+<footer class="site-footer">
+  <button onclick="resetProgress()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:0.75rem;font-family:inherit;">reset progress</button>
+</footer>
+
+<script src="./js/app.js"></script>
+<script>
+  initDashboard();
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Go Fundamentals — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="inner">
+    <a href="../go.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 6 sections understood</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>🔤 Go Fundamentals</h1>
+    <p class="subtitle">The building blocks of every Go program. Master these and everything else clicks into place.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <div class="section" data-id="types-variables">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📐</span><h2>Types &amp; Variables</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go is statically typed: every variable has a type known at compile time. There are no implicit conversions — if you want an <code>int64</code> where you have an <code>int32</code>, you must convert explicitly. This strictness is one of Go's greatest assets: the compiler catches entire categories of bugs before your code runs.</p>
+
+        <h3>Declaration Styles</h3>
+        <p>Go offers two declaration styles. The <code>var</code> keyword is explicit and works at package scope or inside functions. The short declaration <code>:=</code> is implicit and only works inside functions:</p>
+        <pre><code>// var — explicit type, works anywhere
+var name string = "Alice"
+var count int    // zero value: 0
+
+// := — infers type from right side, functions only
+name := "Alice"
+count := 0
+
+// Multiple assignment
+x, y := 10, 20
+a, b := b, a  // swap in one line — no temp variable needed</code></pre>
+        <p>Use <code>var</code> at package scope and when you want to declare without initializing. Use <code>:=</code> inside functions for brevity. The compiler will error if you declare a variable with <code>:=</code> and never use it — this prevents dead code accumulation.</p>
+
+        <h3>Zero Values</h3>
+        <p>Every type in Go has a zero value — what you get when you declare a variable without initializing it. There is no <code>undefined</code> or uninitialized memory:</p>
+        <pre><code>var i int        // 0
+var f float64    // 0.0
+var b bool       // false
+var s string     // ""  (empty string, not nil)
+var p *int       // nil
+var sl []int     // nil (nil slice — length 0, works fine with append)
+var m map[string]int  // nil (nil map — reads return zero, writes panic!)</code></pre>
+        <div class="note note-danger">
+          A nil map returns zero values on read but <strong>panics on write</strong>. Always initialize maps before writing: <code>m := make(map[string]int)</code> or <code>m := map[string]int{}</code>.
+        </div>
+
+        <h3>Basic Types</h3>
+        <p>Go's built-in types:</p>
+        <ul>
+          <li><strong>Integers</strong>: <code>int</code>, <code>int8</code>, <code>int16</code>, <code>int32</code>, <code>int64</code>, and unsigned variants (<code>uint</code>, <code>uint8</code>/byte, <code>uint16</code>, <code>uint32</code>, <code>uint64</code>). Use <code>int</code> unless you have a specific reason not to — it's the size of the platform's native word (64-bit on 64-bit systems).</li>
+          <li><strong>Floats</strong>: <code>float32</code>, <code>float64</code>. Prefer <code>float64</code> — more precision, less surprising.</li>
+          <li><strong>String</strong>: immutable sequence of bytes (UTF-8 by convention). Indexing a string gives a byte, not a rune. Use <code>[]rune(s)</code> to work with Unicode code points.</li>
+          <li><strong>Rune</strong>: alias for <code>int32</code>, represents a Unicode code point.</li>
+          <li><strong>bool</strong>: <code>true</code> or <code>false</code>. No truthy/falsy coercion.</li>
+        </ul>
+
+        <h3>Multiple Return Values</h3>
+        <p>Functions can return multiple values — the idiomatic way to return both a result and an error:</p>
+        <pre><code>func divide(a, b float64) (float64, error) {
+    if b == 0 {
+        return 0, fmt.Errorf("division by zero")
+    }
+    return a / b, nil
+}
+
+result, err := divide(10, 3)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(result) // 3.3333...
+
+// Discard a return value with _
+result, _ = divide(10, 3)</code></pre>
+        <p><strong>Named return values</strong> name the return variables in the function signature. They're initialized to zero values and can be returned with a bare <code>return</code> (a "naked return"). Use sparingly — naked returns in long functions hurt readability. Named returns are mainly useful for documentation or when <code>defer</code> needs to modify the returned value:</p>
+        <pre><code>func minMax(arr []int) (min, max int) {
+    min, max = arr[0], arr[0]
+    for _, v := range arr[1:] {
+        if v < min { min = v }
+        if v > max { max = v }
+    }
+    return // naked return — returns min and max
+}</code></pre>
+
+        <h3>Constants &amp; iota</h3>
+        <pre><code>const Pi = 3.14159
+
+// iota — increments by 1 for each const in a block
+type Direction int
+const (
+    North Direction = iota // 0
+    East                   // 1
+    South                  // 2
+    West                   // 3
+)
+
+// iota with expressions
+type ByteSize float64
+const (
+    _           = iota // ignore first
+    KB ByteSize = 1 << (10 * iota) // 1024
+    MB                              // 1048576
+    GB                              // 1073741824
+)</code></pre>
+      </div>
+    </div>
+
+    <div class="section" data-id="functions-closures">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">⚙️</span><h2>Functions, Closures &amp; Defer</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Functions are first-class citizens in Go: they can be assigned to variables, passed as arguments, and returned from other functions. This makes higher-order functions, callbacks, and middleware patterns idiomatic.</p>
+
+        <h3>Functions as Values</h3>
+        <pre><code>// Assign a function to a variable
+add := func(a, b int) int { return a + b }
+result := add(3, 4) // 7
+
+// Pass a function as an argument
+func apply(nums []int, fn func(int) int) []int {
+    out := make([]int, len(nums))
+    for i, n := range nums {
+        out[i] = fn(n)
+    }
+    return out
+}
+
+doubled := apply([]int{1, 2, 3}, func(n int) int { return n * 2 })
+
+// Return a function from a function
+func multiplier(factor int) func(int) int {
+    return func(n int) int {
+        return n * factor
+    }
+}
+triple := multiplier(3)
+fmt.Println(triple(5)) // 15</code></pre>
+
+        <h3>Closures</h3>
+        <p>A closure is a function that captures variables from its enclosing scope. The captured variables are shared between the closure and the enclosing scope — mutations are visible to both sides:</p>
+        <pre><code>func counter() func() int {
+    count := 0
+    return func() int {
+        count++
+        return count
+    }
+}
+
+c := counter()
+fmt.Println(c()) // 1
+fmt.Println(c()) // 2
+fmt.Println(c()) // 3
+
+// Each call to counter() creates an independent counter
+d := counter()
+fmt.Println(d()) // 1 — fresh count, not shared with c</code></pre>
+        <div class="note note-danger">
+          Classic loop closure bug: capturing a loop variable by reference, not by value.
+          <pre><code>// WRONG — all closures share the same i
+for i := 0; i &lt; 3; i++ {
+    go func() { fmt.Println(i) }() // prints 3 3 3
+}
+
+// CORRECT — pass i as an argument
+for i := 0; i &lt; 3; i++ {
+    go func(i int) { fmt.Println(i) }(i) // prints 0 1 2 (any order)</code></pre>
+        </div>
+
+        <h3>Variadic Functions</h3>
+        <pre><code>func sum(nums ...int) int {
+    total := 0
+    for _, n := range nums {
+        total += n
+    }
+    return total
+}
+
+sum(1, 2, 3)        // direct call
+nums := []int{1, 2, 3}
+sum(nums...)        // spread a slice with ...</code></pre>
+
+        <h3>defer</h3>
+        <p><code>defer</code> pushes a function call onto a stack that executes after the surrounding function returns, in LIFO order. It runs even if the function panics. The canonical use is cleanup — closing files, releasing locks, closing database connections — right next to the code that opens them:</p>
+        <pre><code>func readFile(path string) (string, error) {
+    f, err := os.Open(path)
+    if err != nil {
+        return "", err
+    }
+    defer f.Close() // guaranteed to run when readFile returns
+
+    data, err := io.ReadAll(f)
+    return string(data), err
+}
+
+// defer arguments are evaluated immediately, not when deferred fn runs
+x := 10
+defer fmt.Println(x) // prints 10, not whatever x is later
+x = 20</code></pre>
+        <p>Multiple defers run in reverse order (LIFO). This is intentional: you acquire resources in order A → B → C and release them as C → B → A, like unwinding a call stack.</p>
+
+        <h3>panic &amp; recover</h3>
+        <p><code>panic</code> stops normal execution and begins unwinding the stack, running deferred functions along the way. <code>recover</code> stops the unwind and returns the value passed to <code>panic</code>. Use this sparingly — for truly unexpected invariant violations, not for normal error handling:</p>
+        <pre><code>func safeDiv(a, b int) (result int, err error) {
+    defer func() {
+        if r := recover(); r != nil {
+            err = fmt.Errorf("recovered panic: %v", r)
+        }
+    }()
+    return a / b, nil // panics if b == 0
+}
+
+// The right use of panic: programmer error, never valid inputs
+func mustPositive(n int) int {
+    if n <= 0 {
+        panic(fmt.Sprintf("mustPositive: got %d", n))
+    }
+    return n
+}</code></pre>
+        <p>Rule of thumb: <strong>panic for programmer errors</strong> (precondition violations, impossible states), <strong>errors for expected failures</strong> (bad input, network timeout, file not found). Most library code should never panic on bad input from callers — return an error instead.</p>
+      </div>
+    </div>
+
+    <div class="section" data-id="structs-interfaces">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🧩</span><h2>Structs &amp; Interfaces</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go doesn't have classes or inheritance. Instead it has structs (data) and interfaces (behavior). Composition via embedding replaces inheritance. This leads to simpler, flatter code with less coupling.</p>
+
+        <h3>Structs</h3>
+        <pre><code>type User struct {
+    ID    int
+    Name  string
+    Email string
+    Admin bool
+}
+
+// Initialization — field names make it readable and order-independent
+u := User{
+    ID:    1,
+    Name:  "Alice",
+    Email: "alice@example.com",
+}
+
+// Accessing fields
+fmt.Println(u.Name)
+
+// Pointer to struct — Go auto-dereferences
+p := &User{Name: "Bob"}
+fmt.Println(p.Name)  // same as (*p).Name</code></pre>
+
+        <h3>Methods</h3>
+        <p>Methods are functions with a receiver — the type they operate on. The receiver is like <code>self</code> in Python but is explicit and can be either a value or a pointer:</p>
+        <pre><code>// Value receiver — gets a copy; doesn't modify original
+func (u User) Greet() string {
+    return "Hello, " + u.Name
+}
+
+// Pointer receiver — operates on original; can mutate
+func (u *User) Promote() {
+    u.Admin = true
+}
+
+u := User{Name: "Alice"}
+u.Promote()       // Go automatically takes &u if needed
+fmt.Println(u.Greet()) // "Hello, Alice"</code></pre>
+        <p><strong>Value vs pointer receiver rules:</strong></p>
+        <ul>
+          <li>If the method needs to <em>mutate</em> the receiver, use a pointer receiver.</li>
+          <li>If the struct is large, use a pointer receiver to avoid copying it on every call.</li>
+          <li>If the struct contains a sync.Mutex or similar, it <em>must</em> use a pointer receiver — copying a mutex after first use is a data race.</li>
+          <li>For consistency: if any method on a type uses a pointer receiver, all methods should use pointer receivers.</li>
+        </ul>
+
+        <h3>Embedding (Composition over Inheritance)</h3>
+        <p>Embedding a type inside a struct promotes all the embedded type's methods to the outer struct. This is how Go does code reuse without inheritance:</p>
+        <pre><code>type Animal struct {
+    Name string
+}
+
+func (a Animal) Speak() string {
+    return a.Name + " makes a sound"
+}
+
+type Dog struct {
+    Animal       // embedded — no field name
+    Breed string
+}
+
+d := Dog{
+    Animal: Animal{Name: "Rex"},
+    Breed:  "Labrador",
+}
+
+d.Speak()      // promoted — same as d.Animal.Speak()
+d.Animal.Speak() // also works — explicit
+d.Name          // promoted field — same as d.Animal.Name</code></pre>
+        <p>Embedding is not inheritance. <code>Dog</code> does not "is-a" <code>Animal</code> in the type system — you can't assign a <code>Dog</code> to an <code>Animal</code> variable. What embedding gives you is method promotion and field promotion, nothing more. This is deliberate: the "is-a" relation creates tight coupling that embedding deliberately avoids.</p>
+
+        <h3>Interfaces</h3>
+        <p>An interface is a set of method signatures. Any type that implements all those methods satisfies the interface — <strong>implicitly</strong>, with no <code>implements</code> declaration. This is structural typing (duck typing with compile-time checking):</p>
+        <pre><code>type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+
+type Stringer interface {
+    String() string
+}
+
+// Any type with a Write method automatically satisfies Writer.
+// The type never needs to say so.
+
+// Compose interfaces from smaller ones
+type ReadWriter interface {
+    io.Reader
+    io.Writer
+}</code></pre>
+        <p><strong>The power of implicit satisfaction:</strong> you can define an interface in your package that matches a type in a third-party package, and that third-party type satisfies your interface without any modification. This allows you to build abstractions against code you don't control.</p>
+        <pre><code>// Your package defines just what it needs
+type Storage interface {
+    Get(key string) ([]byte, error)
+    Set(key string, val []byte) error
+}
+
+// In tests, use a fake
+type fakeStorage struct{ data map[string][]byte }
+func (f *fakeStorage) Get(key string) ([]byte, error) { ... }
+func (f *fakeStorage) Set(key string, val []byte) error { ... }
+
+// In production, use Redis — which satisfies Storage without knowing about it</code></pre>
+
+        <h3>Interface Values &amp; nil</h3>
+        <p>An interface value has two components: a concrete type and a concrete value. A nil interface value has both as nil. But a non-nil interface holding a nil pointer is not a nil interface:</p>
+        <pre><code>var w io.Writer        // nil interface — both type and value are nil
+w == nil               // true
+
+var buf *bytes.Buffer  // nil *bytes.Buffer
+w = buf                // non-nil interface! type = *bytes.Buffer, value = nil
+w == nil               // FALSE — this is the notorious Go nil interface trap</code></pre>
+        <div class="note note-danger">
+          Never return a concrete nil pointer as an interface — return a nil interface directly. The function below has the bug: if <code>logging</code> is false, it returns a non-nil interface holding a nil <code>*LogWriter</code>.
+          <pre><code>// BUGGY
+func newWriter(logging bool) io.Writer {
+    var lw *LogWriter
+    if logging {
+        lw = &LogWriter{}
+    }
+    return lw // returns non-nil interface if logging=false!
+}
+
+// CORRECT
+func newWriter(logging bool) io.Writer {
+    if logging {
+        return &LogWriter{}
+    }
+    return nil
+}</code></pre>
+        </div>
+
+        <h3>Type Assertions &amp; Type Switches</h3>
+        <pre><code>// Type assertion — extract the concrete type from an interface
+var i interface{} = "hello"
+s, ok := i.(string) // ok = true, s = "hello"
+n, ok := i.(int)    // ok = false, n = 0 (zero value, no panic)
+s = i.(string)      // without ok: panics if wrong type
+
+// Type switch — pattern-match on concrete type
+func describe(i interface{}) string {
+    switch v := i.(type) {
+    case int:
+        return fmt.Sprintf("int: %d", v)
+    case string:
+        return fmt.Sprintf("string: %q", v)
+    case bool:
+        return fmt.Sprintf("bool: %t", v)
+    default:
+        return fmt.Sprintf("unknown: %T", v)
+    }
+}</code></pre>
+      </div>
+    </div>
+
+    <div class="section" data-id="error-handling">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔴</span><h2>Error Handling</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>In Go, errors are values — the built-in <code>error</code> interface with a single method <code>Error() string</code>. There is no exception mechanism for recoverable failures. You check errors explicitly, inline, at every call site. This is not boilerplate — it forces you to think about every failure mode and decide what to do with it.</p>
+
+        <h3>The error Interface</h3>
+        <pre><code>// The built-in error interface
+type error interface {
+    Error() string
+}
+
+// errors.New creates a simple error value
+err := errors.New("something went wrong")
+
+// fmt.Errorf creates a formatted error
+err = fmt.Errorf("user %d not found", userID)
+
+// Checking for nil
+if err != nil {
+    // handle it
+}</code></pre>
+
+        <h3>Custom Error Types</h3>
+        <p>Implement the <code>error</code> interface on any type to create rich, inspectable errors:</p>
+        <pre><code>type ValidationError struct {
+    Field   string
+    Message string
+}
+
+func (e *ValidationError) Error() string {
+    return fmt.Sprintf("validation error on %s: %s", e.Field, e.Message)
+}
+
+// Callers can type-assert to get the structured data
+err := validate(input)
+var ve *ValidationError
+if errors.As(err, &ve) {
+    fmt.Printf("invalid field: %s\n", ve.Field)
+}</code></pre>
+
+        <h3>Wrapping Errors: %w</h3>
+        <p>When a lower-level error propagates up the call stack, wrap it with context using <code>fmt.Errorf("...: %w", err)</code>. The <code>%w</code> verb records the wrapped error in a chain that callers can inspect:</p>
+        <pre><code>func getUser(id int) (*User, error) {
+    row, err := db.Query("SELECT * FROM users WHERE id = ?", id)
+    if err != nil {
+        return nil, fmt.Errorf("getUser(%d): %w", id, err)
+    }
+    // ...
+}
+
+// The error message chains nicely:
+// "getUser(42): sql: no rows in result set"
+
+// Callers can unwrap to check for specific errors:
+if errors.Is(err, sql.ErrNoRows) {
+    // handle not-found
+}</code></pre>
+
+        <h3>errors.Is and errors.As</h3>
+        <p>Never compare errors with <code>==</code> when they might be wrapped. Use these instead:</p>
+        <ul>
+          <li><code>errors.Is(err, target)</code> — walks the error chain checking if any error in the chain matches <code>target</code>. Use for sentinel errors.</li>
+          <li><code>errors.As(err, &target)</code> — walks the chain checking if any error can be assigned to <code>target</code>. Use for typed errors where you need the fields.</li>
+        </ul>
+        <pre><code>// Sentinel errors — exported variables that callers check against
+var ErrNotFound = errors.New("not found")
+var ErrUnauthorized = errors.New("unauthorized")
+
+// errors.Is unwraps automatically
+wrappedErr := fmt.Errorf("service failed: %w", ErrNotFound)
+errors.Is(wrappedErr, ErrNotFound) // true
+
+// errors.As to extract typed error from chain
+var dbErr *DBError
+if errors.As(err, &dbErr) {
+    fmt.Println(dbErr.Code) // access structured fields
+}</code></pre>
+
+        <h3>Error Handling Patterns</h3>
+        <p><strong>Add context, don't discard it.</strong> Errors bubble up through function calls — each layer should add what it knows:</p>
+        <pre><code>// Good — each layer adds context
+func processOrder(orderID string) error {
+    order, err := fetchOrder(orderID)
+    if err != nil {
+        return fmt.Errorf("processOrder %s: %w", orderID, err)
+    }
+    if err := chargeCard(order); err != nil {
+        return fmt.Errorf("processOrder %s: charge: %w", orderID, err)
+    }
+    return nil
+}
+// Error: "processOrder ord_123: charge: card declined"</code></pre>
+        <div class="note note-warning">
+          <strong>Don't log and return.</strong> If you log an error and also return it, the error will be logged again by the caller, and again by its caller. Pick one: either handle the error (log it, return a response) or propagate it upward. Doing both produces duplicate log noise that makes incidents harder to debug.
+        </div>
+        <p><strong>Panic is not an error return.</strong> Libraries should return errors, not panic on bad inputs. Reserve panic for programmer errors: violated preconditions, impossible states, corrupt internal invariants. The <code>must</code> pattern is common for initialization-time errors where there's no point continuing:</p>
+        <pre><code>// mustCompile panics if regex is invalid — only for compile-time constants
+var emailRe = regexp.MustCompile(`^[a-z]+@[a-z]+\.[a-z]+$`)</code></pre>
+      </div>
+    </div>
+
+    <div class="section" data-id="pointers">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📍</span><h2>Pointers &amp; Value Semantics</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>A pointer holds the memory address of a value rather than the value itself. Go has pointers but no pointer arithmetic — you can't do <code>ptr++</code> to walk memory. This keeps pointers safe while still giving you control over when things are copied vs shared.</p>
+
+        <h3>Pointer Basics</h3>
+        <pre><code>x := 42
+p := &x       // p is of type *int, holds address of x
+fmt.Println(*p) // dereference: prints 42
+*p = 100       // modify through pointer
+fmt.Println(x) // 100 — x changed!
+
+// new() allocates zeroed memory and returns a pointer
+p2 := new(int) // *int pointing to 0
+*p2 = 7</code></pre>
+
+        <h3>When to Use Pointers</h3>
+        <p>The question is: do you want the callee to see the original, or its own copy?</p>
+        <ul>
+          <li><strong>Use a pointer</strong> when the function needs to modify the value, when the struct is large (copying is expensive), when you want to distinguish between "zero value" and "not provided" (use <code>*string</code> vs <code>string</code>), or when the type contains a mutex.</li>
+          <li><strong>Use a value</strong> for small types (int, float64, small structs), when the function only needs to read, or for immutable data you want to protect from mutation.</li>
+        </ul>
+        <pre><code>// Pointer: function modifies the struct
+func (u *User) SetEmail(email string) {
+    u.Email = email
+}
+
+// Value: function only reads, small struct
+func (p Point) Distance() float64 {
+    return math.Sqrt(p.X*p.X + p.Y*p.Y)
+}</code></pre>
+
+        <h3>Slices, Maps, and Channels Are Reference Types</h3>
+        <p>Slices, maps, and channels are already reference types — they contain internal pointers to their underlying data. Passing them to functions does not copy the data:</p>
+        <pre><code>func doubleAll(nums []int) {
+    for i := range nums {
+        nums[i] *= 2 // modifies the original slice's backing array
+    }
+}
+
+s := []int{1, 2, 3}
+doubleAll(s)
+fmt.Println(s) // [2 4 6] — original was modified</code></pre>
+        <div class="note note-warning">
+          <strong>Slice header vs backing array.</strong> A slice is a three-word struct: pointer to backing array, length, capacity. When you pass a slice to a function, you pass a copy of the header — the pointer inside still points to the same backing array. Mutations to elements affect the original. But <code>append</code> may allocate a new array if capacity is exceeded — the caller's slice header won't see the new elements unless you return the new slice.
+          <pre><code>func appendItem(s []int, item int) []int {
+    return append(s, item) // must return the new slice
+}</code></pre>
+        </div>
+
+        <h3>nil Pointers</h3>
+        <p>Dereferencing a nil pointer panics. Always check before dereferencing a pointer you didn't initialize yourself:</p>
+        <pre><code>var p *User
+if p != nil {
+    fmt.Println(p.Name) // safe
+}
+fmt.Println(p.Name) // panic: nil pointer dereference</code></pre>
+        <p>A common pattern is to use a pointer to a struct as an optional value — nil means "not present," non-nil means "present." This is more explicit than a boolean flag alongside a value.</p>
+      </div>
+    </div>
+
+    <div class="section" data-id="packages-modules">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📦</span><h2>Packages &amp; Modules</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go's package system is the unit of code organization and encapsulation. Modules (introduced in Go 1.11) manage dependencies. Together they define how Go projects are structured, shared, and versioned.</p>
+
+        <h3>Packages</h3>
+        <p>Every Go file belongs to a package, declared at the top: <code>package foo</code>. All files in the same directory must use the same package name. Import paths are directory paths relative to the module root:</p>
+        <pre><code>// File: myapp/users/repository.go
+package users
+
+// File: myapp/main.go
+package main
+
+import "myapp/users"</code></pre>
+        <p><strong>Exported vs unexported identifiers:</strong> Identifiers starting with an uppercase letter are exported (public). All others are unexported (package-private). There's no <code>public</code>/<code>private</code> keyword — the naming convention is enforced by the compiler:</p>
+        <pre><code>package users
+
+type User struct {        // exported — visible outside package
+    ID   int              // exported field
+    name string           // unexported field — only accessible in this package
+}
+
+func NewUser(name string) *User { ... } // exported constructor
+func validate(u *User) error { ... }    // unexported helper</code></pre>
+        <p>Good package design: export the minimal surface area needed. If you're unsure whether something should be exported, don't export it — it's easier to export later than to unexport something that callers have started depending on.</p>
+
+        <h3>Modules &amp; go.mod</h3>
+        <p>A module is a collection of packages with a common import path prefix, versioned together. The <code>go.mod</code> file is the module definition:</p>
+        <pre><code>module github.com/acme/myapp
+
+go 1.22
+
+require (
+    github.com/gin-gonic/gin v1.9.1
+    golang.org/x/crypto v0.21.0
+)
+
+// replace — redirect to a local path (for development)
+replace github.com/acme/shared => ../shared</code></pre>
+        <p>Key commands:</p>
+        <ul>
+          <li><code>go mod init github.com/you/project</code> — initialize a new module</li>
+          <li><code>go get github.com/pkg@v1.2.3</code> — add/update a dependency</li>
+          <li><code>go mod tidy</code> — remove unused deps, add missing ones</li>
+          <li><code>go mod vendor</code> — copy deps into a <code>vendor/</code> directory for reproducible builds</li>
+        </ul>
+
+        <h3>init() Functions</h3>
+        <p>Each package can have one or more <code>init()</code> functions — they run automatically when the package is first imported, before <code>main()</code>:</p>
+        <pre><code>func init() {
+    // runs once when this package is imported
+    // common uses: register drivers, validate config, set up global state
+    sql.Register("postgres", &pgDriver{})
+}</code></pre>
+        <p>Use <code>init()</code> sparingly. Hidden initialization makes code harder to test and reason about. Prefer explicit initialization in <code>main()</code> or constructor functions. The main valid use case is registering things in a global registry (database drivers, codec implementations, etc.).</p>
+
+        <h3>The Blank Import</h3>
+        <p>Importing a package solely for its <code>init()</code> side effect uses the blank identifier:</p>
+        <pre><code>import _ "github.com/lib/pq" // registers the postgres driver via init()</code></pre>
+
+        <h3>Essential Go Tooling</h3>
+        <ul>
+          <li><code>go build ./...</code> — compile all packages in the module</li>
+          <li><code>go test ./...</code> — run all tests</li>
+          <li><code>go vet ./...</code> — catch common mistakes (misused Printf verbs, unreachable code, etc.)</li>
+          <li><code>gofmt -w .</code> — format code (non-negotiable; all Go code is formatted the same way)</li>
+          <li><code>golangci-lint run</code> — run a suite of linters (the de facto standard in production codebases)</li>
+          <li><code>go doc net/http</code> — read package documentation from the terminal</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Resources -->
+    <div class="section" style="border-style:dashed;">
+      <div class="section-header" style="border-bottom:none;">
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
+      </div>
+      <div class="section-body">
+        <div class="resource-list">
+          <div class="resource"><span class="resource-type book">book</span><div class="resource-content"><div class="resource-title">The Go Programming Language</div><div class="resource-author">Donovan &amp; Kernighan — Addison-Wesley</div><div class="resource-desc">The authoritative reference. Dense and worth every page. Read chapters 1–5 for the fundamentals covered here, then return to it chapter by chapter as you need depth.</div></div></div>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">A Tour of Go</div><div class="resource-author">tour.golang.org</div><div class="resource-desc">The official interactive tutorial. Covers everything in this section with runnable examples. Good for hands-on reinforcement of what you read here.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Effective Go</div><div class="resource-author">go.dev/doc/effective_go</div><div class="resource-desc">The Go team's style guide. Read after you can write basic Go. Explains the idioms and conventions the community has converged on.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Errors are values</div><div class="resource-author">Rob Pike — go.dev/blog/errors-are-values</div><div class="resource-desc">The canonical post explaining why Go's error handling is deliberate, not a limitation, and patterns for making repetitive error checks less verbose.</div></div></div>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">Go Spec — Types</div><div class="resource-author">go.dev/ref/spec</div><div class="resource-desc">When you need precision on how a type or expression behaves, the spec is authoritative. The types and interfaces sections are worth reading once you're comfortable with the basics.</div></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <span></span>
+    <a href="../go.html" class="center">All modules</a>
+    <a href="go-control-data.html">Control Structures &amp; Data →</a>
+  </div>
+</footer>
+
+<script src="../js/app.js"></script>
+<script src="../js/highlight.js"></script>
+<script>
+  initSections('go-fundamentals');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
+</script>
+</body>
+</html>

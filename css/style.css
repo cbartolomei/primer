@@ -63,7 +63,17 @@ pre {
   line-height: 1.6;
   margin: 0.75rem 0;
 }
-pre code { background: none; border: none; padding: 0; font-size: inherit; color: #c0b8ff; }
+pre code { background: none; border: none; padding: 0; font-size: inherit; color: #abb2bf; }
+
+/* ── Syntax highlighting (Go) — One Dark palette ──────────── */
+.hl-keyword  { color: #c678dd; }
+.hl-type     { color: #e5c07b; }
+.hl-builtin  { color: #56b6c2; }
+.hl-func     { color: #61afef; }
+.hl-string   { color: #98c379; }
+.hl-number   { color: #d19a66; }
+.hl-literal  { color: #e06c75; }
+.hl-comment  { color: #5c6370; font-style: italic; }
 
 strong { font-weight: 600; color: var(--text); }
 
@@ -99,6 +109,8 @@ strong { font-weight: 600; color: var(--text); }
   white-space: nowrap;
 }
 .site-logo span { color: var(--accent); }
+a.site-logo { text-decoration: none; transition: opacity 0.15s; }
+a.site-logo:hover { opacity: 0.7; text-decoration: none; }
 
 .header-progress {
   flex: 1;
@@ -235,19 +247,74 @@ strong { font-weight: 600; color: var(--text); }
   border-radius: var(--radius-lg);
   margin-bottom: 1.25rem;
   overflow: hidden;
+  transition: border-color 0.2s;
 }
+.section.checked { border-color: rgba(34, 197, 94, 0.25); }
 
 .section-header {
   padding: 1rem 1.375rem;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.section.checked > .section-header { background: rgba(34, 197, 94, 0.03); }
+.section-header-left {
+  display: flex;
+  align-items: center;
   gap: 0.625rem;
 }
 .section-header h2 { margin: 0; font-size: 0.9375rem; }
-.section-icon { font-size: 1rem; }
+.section-icon { font-size: 1rem; flex-shrink: 0; }
 
-.section-body { padding: 1.125rem 1.375rem; }
+/* Mark understood pill */
+.section-understood {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.3em 0.8em;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  user-select: none;
+}
+.section-understood input[type="checkbox"] { display: none; }
+.section-understood:hover { border-color: var(--success); color: var(--success); }
+.section.checked .section-understood {
+  background: var(--success-dim);
+  border-color: rgba(34, 197, 94, 0.3);
+  color: var(--success);
+}
+
+.section-body { padding: 1.375rem; }
+
+/* ── Prose content spacing ─────────────────────────────────── */
+.section-body h3 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 1.75rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid var(--border);
+}
+.section-body h3:first-child { margin-top: 0; }
+.section-body > p { margin-bottom: 0.75rem; }
+.section-body > p:last-child { margin-bottom: 0; }
+.section-body > pre { margin: 0.875rem 0; }
+.section-body > ul,
+.section-body > ol { margin-bottom: 0.75rem; }
+.section-body > .note { margin: 0.875rem 0; }
+.section-body > .note:first-child { margin-top: 0; }
+.section-body > table { margin: 0.875rem 0; }
 
 /* ── Checklist ─────────────────────────────────────────────── */
 .checklist {
@@ -458,6 +525,62 @@ details.qa .qa-body ul { margin-bottom: 0; }
 .resource-author { font-size: 0.75rem; color: var(--muted); margin-top: 0.1rem; }
 .resource-desc   { font-size: 0.8125rem; color: var(--muted); margin-top: 0.25rem; line-height: 1.5; }
 
+/* ── Track grid (landing) ──────────────────────────────────── */
+.track-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.125rem;
+  margin-bottom: 3rem;
+}
+
+.track-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.75rem;
+  text-decoration: none;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  transition: border-color 0.18s, transform 0.18s, box-shadow 0.18s;
+}
+.track-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(124, 99, 245, 0.12);
+  text-decoration: none;
+}
+.track-card-soon {
+  opacity: 0.45;
+  cursor: default;
+}
+.track-card-soon:hover { border-color: var(--border); transform: none; box-shadow: none; }
+
+.track-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.track-card-icon { font-size: 2rem; line-height: 1; }
+.track-card-icon-img { width: 2.25rem; height: 2.25rem; object-fit: contain; display: block; }
+.track-card-badge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 0.2em 0.55em;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.track-card-badge.done { background: var(--success-dim); color: var(--success); }
+.track-card-badge-muted { background: var(--surface2); color: var(--muted); }
+.track-card-title { font-size: 1.1875rem; font-weight: 700; letter-spacing: -0.02em; }
+.track-card-desc  { color: var(--muted); font-size: 0.875rem; line-height: 1.55; flex: 1; }
+.track-card-progress { margin-top: 0.25rem; }
+.track-card-progress .progress-label { font-size: 0.6875rem; }
+
 /* ── Tier labels (index) ───────────────────────────────────── */
 .tier {
   margin-bottom: 2.5rem;
@@ -479,6 +602,90 @@ details.qa .qa-body ul { margin-bottom: 0; }
   font-size: 0.8125rem;
   color: var(--muted);
 }
+
+/* ── Page layout with TOC sidebar ─────────────────────────── */
+.page-body {
+  display: flex;
+  gap: 2.5rem;
+  align-items: flex-start;
+}
+
+.toc-sidebar {
+  width: 176px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 4.5rem;
+  max-height: calc(100vh - 5.5rem);
+  overflow-y: auto;
+  padding-bottom: 2rem;
+  scrollbar-width: none;
+}
+.toc-sidebar::-webkit-scrollbar { display: none; }
+
+.toc-title {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.625rem;
+  padding: 0 0.5rem;
+}
+
+.toc-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.toc-item a {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+  color: var(--muted);
+  text-decoration: none;
+  line-height: 1.35;
+  border-left: 2px solid transparent;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.toc-item a:hover { color: var(--text); background: var(--surface); text-decoration: none; }
+.toc-item.active a { color: var(--text); background: var(--surface); }
+.toc-item.checked a { color: var(--success); border-left-color: rgba(34, 197, 94, 0.5); }
+.toc-item.checked.active a { border-left-color: var(--success); }
+
+.toc-icon { font-size: 0.8125rem; flex-shrink: 0; margin-top: 0.1rem; line-height: 1; }
+
+.page-body > .topic-content { flex: 1; min-width: 0; }
+
+@media (max-width: 1060px) {
+  .toc-sidebar { display: none; }
+  .page-body { display: block; }
+}
+
+/* ── Diagrams ──────────────────────────────────────────────── */
+.diagram {
+  margin: 1.25rem 0;
+  text-align: center;
+}
+.diagram img {
+  max-width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: #fff;
+}
+.diagram figcaption {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 0.5rem;
+  font-style: italic;
+}
+.section-body > .diagram { margin: 1.25rem 0; }
 
 /* ── Responsive ────────────────────────────────────────────── */
 @media (max-width: 640px) {
