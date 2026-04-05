@@ -696,3 +696,186 @@ details.qa .qa-body ul { margin-bottom: 0; }
   .section-body    { padding: 1rem; }
   .site-header .inner { padding: 0.75rem 1rem; }
 }
+
+/* ── Sync button ───────────────────────────────────────────── */
+.sync-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.sync-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.sync-btn[data-sync-state="connected"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.sync-btn[data-sync-state="error"] {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.sync-btn[data-sync-state="syncing"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  animation: sync-spin 1s linear infinite;
+}
+@keyframes sync-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Sync modal ────────────────────────────────────────────── */
+.sync-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.sync-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.75rem;
+  max-width: 480px;
+  width: 100%;
+  position: relative;
+}
+.sync-modal h2 {
+  font-size: 1.125rem;
+  margin-bottom: 0.625rem;
+}
+.sync-modal p {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+.sync-modal-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.25rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0.25rem;
+}
+.sync-modal-close:hover { color: var(--text); }
+
+.sync-steps {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  padding-left: 1.25rem;
+  margin-bottom: 1.25rem;
+  line-height: 1.7;
+}
+.sync-steps strong { color: var(--text); }
+.sync-steps li { margin-bottom: 0.3rem; }
+
+.sync-field {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.sync-field input {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  padding: 0.5rem 0.75rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.sync-field input:focus { border-color: var(--accent); }
+.sync-field input::placeholder { color: var(--muted); }
+
+.sync-connect-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+.sync-connect-btn:hover:not(:disabled) { opacity: 0.85; }
+.sync-connect-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.sync-error {
+  font-size: 0.8125rem;
+  color: var(--danger);
+  margin-top: 0.25rem;
+}
+
+/* ── Sync popover ──────────────────────────────────────────── */
+.sync-popover {
+  position: absolute;
+  z-index: 500;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  min-width: 200px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+.sync-popover-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.125rem;
+}
+.sync-popover-status {
+  font-size: 0.8125rem;
+  color: var(--accent);
+  font-weight: 500;
+}
+.sync-popover-muted {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.sync-popover-hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.25rem 0;
+}
+.sync-popover-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.8125rem;
+  padding: 0.4rem 0.625rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+.sync-popover-btn:hover { background: var(--border); }
+.sync-popover-danger { color: var(--danger); }
+.sync-popover-danger:hover { background: rgba(239,68,68,0.1); }

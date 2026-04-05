@@ -202,6 +202,7 @@ function setCheck(key, val) {
   const c = getChecks();
   c[key] = val;
   localStorage.setItem(CHECKS_KEY, JSON.stringify(c));
+  window.primerSync?.schedulePush();
 }
 
 function getTopicProgress(topicId) {
@@ -251,6 +252,21 @@ function initSections(pageId) {
 
   updateSectionProgress(pageId);
   buildTOC();
+
+  // Re-apply checkboxes after a Gist pull on another device
+  document.addEventListener('primer:synced', () => {
+    const fresh = getChecks();
+    sections.forEach(section => {
+      const id  = pageId + ':' + section.dataset.id;
+      const cb  = section.querySelector('input[type="checkbox"]');
+      const span = section.querySelector('.section-understood span');
+      const val = !!fresh[id];
+      section.classList.toggle('checked', val);
+      if (cb)   cb.checked = val;
+      if (span) span.textContent = val ? '✓ Understood' : 'Mark understood';
+    });
+    updateSectionProgress(pageId);
+  });
 }
 
 function buildTOC() {
@@ -445,3 +461,274 @@ function resetProgress() {
   localStorage.removeItem(CHECKS_KEY);
   location.reload();
 }
+
+// ── Gist Sync ─────────────────────────────────────────────────
+// Optional cross-device progress sync via a private GitHub Gist.
+// Degrades gracefully when no token is configured.
+
+(function () {
+  const TOKEN_KEY     = 'primer:sync:token';
+  const GIST_ID_KEY   = 'primer:sync:gist-id';
+  const LAST_SYNC_KEY = 'primer:sync:last-synced';
+  const GIST_FILE     = 'primer-progress.json';
+  const GIST_DESC     = 'Primer study progress';
+  const DEBOUNCE_MS   = 1500;
+
+  let pushTimer = null;
+  let _button   = null;
+
+  // ── GitHub API helper ───────────────────────────────────────
+  async function ghFetch(path, options = {}) {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) throw new Error('No token');
+    const res = await fetch('https://api.github.com' + path, {
+      ...options,
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(options.headers || {}),
+      },
+    });
+    if (!res.ok) {
+      const msg = await res.text().catch(() => res.statusText);
+      throw new Error('GitHub ' + res.status + ': ' + msg);
+    }
+    return res.json();
+  }
+
+  // ── Pull ────────────────────────────────────────────────────
+  async function pull() {
+    const gistId = localStorage.getItem(GIST_ID_KEY);
+    if (!gistId) return;
+    try {
+      const gist = await ghFetch('/gists/' + gistId);
+      const raw  = gist.files?.[GIST_FILE]?.content;
+      if (!raw) return;
+      const remote = JSON.parse(raw);
+      const local  = getChecks();
+      const merged = Object.assign({}, local, remote);
+      localStorage.setItem(CHECKS_KEY, JSON.stringify(merged));
+      localStorage.setItem(LAST_SYNC_KEY, new Date().toISOString());
+      document.dispatchEvent(new CustomEvent('primer:synced'));
+      updateSyncButton('connected');
+    } catch (e) {
+      console.warn('[sync] pull failed:', e.message);
+      if (e.message.includes('401') || e.message.includes('404')) {
+        updateSyncButton('error');
+      }
+    }
+  }
+
+  // ── Push ────────────────────────────────────────────────────
+  async function push() {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) return;
+    const body = JSON.stringify({
+      description: GIST_DESC,
+      public: false,
+      files: { [GIST_FILE]: { content: JSON.stringify(getChecks(), null, 2) } },
+    });
+    try {
+      let gistId = localStorage.getItem(GIST_ID_KEY);
+      if (gistId) {
+        await ghFetch('/gists/' + gistId, {
+          method: 'PATCH', body,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } else {
+        const created = await ghFetch('/gists', {
+          method: 'POST', body,
+          headers: { 'Content-Type': 'application/json' },
+        });
+        localStorage.setItem(GIST_ID_KEY, created.id);
+      }
+      localStorage.setItem(LAST_SYNC_KEY, new Date().toISOString());
+      updateSyncButton('connected');
+    } catch (e) {
+      console.warn('[sync] push failed:', e.message);
+      updateSyncButton('error');
+    }
+  }
+
+  // ── Debounced push ──────────────────────────────────────────
+  function schedulePush() {
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(push, DEBOUNCE_MS);
+  }
+
+  // ── Sync button ─────────────────────────────────────────────
+  const STATE_TITLES = {
+    disconnected: 'Set up Gist sync',
+    connected:    'Sync connected — click to manage',
+    error:        'Sync error — click to check settings',
+    syncing:      'Syncing…',
+  };
+
+  function updateSyncButton(state) {
+    if (!_button) return;
+    _button.dataset.syncState = state;
+    _button.title = STATE_TITLES[state] || '';
+  }
+
+  function syncIcon() {
+    return '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>';
+  }
+
+  function renderSyncButton() {
+    const header = document.querySelector('.site-header .inner');
+    if (!header) return;
+
+    const btn = document.createElement('button');
+    btn.className  = 'sync-btn';
+    btn.type       = 'button';
+    btn.setAttribute('aria-label', 'Sync progress');
+    btn.innerHTML  = syncIcon();
+    _button = btn;
+    header.appendChild(btn);
+
+    updateSyncButton(localStorage.getItem(TOKEN_KEY) ? 'connected' : 'disconnected');
+
+    btn.addEventListener('click', () => {
+      if (localStorage.getItem(TOKEN_KEY)) {
+        openSettingsPopover(btn);
+      } else {
+        openSetupModal();
+      }
+    });
+  }
+
+  // ── Setup modal ─────────────────────────────────────────────
+  function openSetupModal() {
+    removePopover();
+    if (document.getElementById('sync-modal')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'sync-modal';
+    overlay.className = 'sync-modal-overlay';
+    overlay.innerHTML = `
+      <div class="sync-modal" role="dialog" aria-modal="true" aria-labelledby="sync-modal-title">
+        <button class="sync-modal-close" aria-label="Close">&times;</button>
+        <h2 id="sync-modal-title">Sync Progress Across Devices</h2>
+        <p>Primer stores your progress in a private GitHub Gist. Works on any device where you paste your token.</p>
+        <ol class="sync-steps">
+          <li>Go to <strong>github.com → Settings → Developer settings → Personal access tokens → Tokens (classic)</strong></li>
+          <li>Click <strong>Generate new token (classic)</strong></li>
+          <li>Give it any name (e.g. "Primer sync") and check the <strong>gist</strong> scope only</li>
+          <li>Copy the token and paste it below</li>
+        </ol>
+        <div class="sync-field">
+          <input id="sync-token-input" type="password" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" spellcheck="false">
+          <button id="sync-connect-btn" class="sync-connect-btn">Connect</button>
+        </div>
+        <p id="sync-modal-error" class="sync-error" hidden></p>
+      </div>`;
+
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('.sync-modal-close').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+    const input      = overlay.querySelector('#sync-token-input');
+    const connectBtn = overlay.querySelector('#sync-connect-btn');
+    const errEl      = overlay.querySelector('#sync-modal-error');
+
+    connectBtn.addEventListener('click', async () => {
+      const token = input.value.trim();
+      if (!token) return;
+      connectBtn.disabled = true;
+      connectBtn.textContent = 'Connecting…';
+      errEl.hidden = true;
+      try {
+        const res = await fetch('https://api.github.com/user', {
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Accept': 'application/vnd.github+json',
+          },
+        });
+        if (!res.ok) throw new Error('Invalid token (HTTP ' + res.status + ')');
+        localStorage.setItem(TOKEN_KEY, token);
+        overlay.remove();
+        updateSyncButton('connected');
+        await push();
+        await pull();
+      } catch (e) {
+        errEl.textContent = e.message;
+        errEl.hidden = false;
+        connectBtn.disabled = false;
+        connectBtn.textContent = 'Connect';
+      }
+    });
+
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') connectBtn.click(); });
+    setTimeout(() => input.focus(), 50);
+  }
+
+  // ── Settings popover ────────────────────────────────────────
+  function removePopover() {
+    document.getElementById('sync-popover')?.remove();
+  }
+
+  function openSettingsPopover(anchor) {
+    removePopover();
+
+    const lastRaw = localStorage.getItem(LAST_SYNC_KEY);
+    const lastStr = lastRaw ? new Date(lastRaw).toLocaleString() : 'Never';
+
+    const pop = document.createElement('div');
+    pop.id = 'sync-popover';
+    pop.className = 'sync-popover';
+    pop.innerHTML = `
+      <div class="sync-popover-label">Gist sync</div>
+      <div class="sync-popover-status">● Connected</div>
+      <div class="sync-popover-muted">Last synced: ${lastStr}</div>
+      <hr class="sync-popover-hr">
+      <button id="sync-now-btn" class="sync-popover-btn">Sync now</button>
+      <button id="sync-disconnect-btn" class="sync-popover-btn sync-popover-danger">Disconnect</button>`;
+
+    document.body.appendChild(pop);
+
+    const rect = anchor.getBoundingClientRect();
+    pop.style.top   = (rect.bottom + window.scrollY + 6) + 'px';
+    pop.style.right = (window.innerWidth - rect.right) + 'px';
+
+    pop.querySelector('#sync-now-btn').addEventListener('click', async () => {
+      removePopover();
+      updateSyncButton('syncing');
+      await push();
+      await pull();
+    });
+
+    pop.querySelector('#sync-disconnect-btn').addEventListener('click', () => {
+      if (!confirm('Disconnect sync? Your local progress is kept.')) return;
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(GIST_ID_KEY);
+      localStorage.removeItem(LAST_SYNC_KEY);
+      removePopover();
+      updateSyncButton('disconnected');
+    });
+
+    setTimeout(() => {
+      document.addEventListener('click', function handler(e) {
+        if (!pop.contains(e.target) && e.target !== anchor) {
+          removePopover();
+          document.removeEventListener('click', handler, true);
+        }
+      }, true);
+    }, 0);
+  }
+
+  // ── Boot ────────────────────────────────────────────────────
+  window.primerSync = { schedulePush, pull };
+
+  function boot() {
+    renderSyncButton();
+    if (localStorage.getItem(TOKEN_KEY)) pull();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();

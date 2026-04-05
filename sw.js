@@ -1,4 +1,4 @@
-const CACHE = 'primer-v10';
+const CACHE = 'primer-v13';
 
 const PRECACHE = [
   './',
@@ -33,7 +33,13 @@ const PRECACHE = [
 
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(PRECACHE))
+    caches.open(CACHE).then(c =>
+      Promise.all(
+        PRECACHE.map(url =>
+          c.add(new Request(url, { cache: 'reload' }))
+        )
+      )
+    )
   );
   self.skipWaiting();
 });
