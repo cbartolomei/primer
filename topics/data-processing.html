@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Processing — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="inner">
+    <a href="../backend.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 6 sections understood</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>📊 Data Processing</h1>
+    <p class="subtitle">Batch pipelines, stream processing, columnar storage, data warehousing, and change data capture — how data moves, transforms, and lands at scale.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <!-- SECTION 1: BATCH VS STREAM -->
+    <div class="section" data-id="batch-vs-stream">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">⚖️</span><h2>Batch vs Stream Processing</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Kleppmann distinguishes three types of data processing systems. <strong>Services (online systems)</strong> wait for requests and respond immediately — response time is the key metric. Web servers, APIs, and databases all fall here. <strong>Batch processing (offline systems)</strong> take a large input dataset, run a computation, and produce output — periodically (hourly, daily). Throughput is the metric; nobody waits for the result in real time. MapReduce, Spark jobs, and nightly ETL pipelines are all batch. <strong>Stream processing (near-real-time)</strong> sits between the two: it consumes events shortly after they happen, not at fixed intervals. Low latency but not interactive. Kafka Streams, Flink, and Spark Structured Streaming live here.</p>
+
+        <h3>The Fundamental Split: Bounded vs Unbounded Data</h3>
+        <p>Batch operates on <strong>bounded</strong> data — a finite dataset: yesterday's logs, last month's sales, the entire user table. The job runs, finishes, and exits. Stream operates on <strong>unbounded</strong> data — a continuous flow that never ends. You can't sort an infinite stream. You can't wait to see all the data before you start computing. This distinction shapes every architectural decision downstream.</p>
+
+        <h3>When to Use Batch</h3>
+        <ul>
+          <li><strong>Large historical datasets</strong>: reprocessing, backfill, training ML models. You need to touch terabytes — batch handles this naturally.</li>
+          <li><strong>Complex multi-pass algorithms</strong>: sorting or joining across TB of data requires seeing all the data, which only batch can provide.</li>
+          <li><strong>High latency tolerance</strong>: results needed by next morning, not next second. Batch is simpler and cheaper when you have hours to spare.</li>
+          <li><strong>Correctness over speed</strong>: financial reconciliation, billing runs, compliance reports. Batch makes it easy to rerun, verify, and audit.</li>
+        </ul>
+
+        <h3>When to Use Stream</h3>
+        <ul>
+          <li><strong>Low-latency alerting</strong>: fraud detection must act within seconds, not hours. A batch job that runs nightly is useless for a transaction happening right now.</li>
+          <li><strong>Continuous aggregations</strong>: a dashboard showing requests/minute <em>right now</em> requires a stream processor maintaining a rolling count.</li>
+          <li><strong>Event-driven pipelines</strong>: a new user signs up → trigger onboarding email, provision resources, notify analytics. Stream lets each step react immediately.</li>
+          <li><strong>Very short batch windows</strong>: if you'd set your batch interval to 1 second or less, you've built a streaming system whether you intended to or not.</li>
+        </ul>
+
+        <h3>Micro-Batching</h3>
+        <p><strong>Micro-batching</strong> was Spark Streaming's original approach — collect events into tiny fixed windows (1–5 seconds) and run a batch job over each window. Simpler to reason about than true streaming, and it reused the entire Spark batch engine. The tradeoff: latency is at minimum one batch interval. You also get awkward boundary effects when an event arrives just after a window closes. Spark's Structured Streaming now supports a true continuous streaming mode, and most new deployments use it over the legacy DStream API.</p>
+
+        <h3>The Unix Philosophy of Batch</h3>
+        <p>Kleppmann draws a direct line from Unix pipes to MapReduce. Unix: <code>cat log | awk '{print $7}' | sort | uniq -c | head</code>. MapReduce: map (extract key/value) → shuffle (sort by key) → reduce (aggregate). The same pipeline model, distributed across thousands of machines. Immutable input, one-directional flow, each stage does one thing well. The key insight: chaining simple, composable transformations is more maintainable and debuggable than a single monolithic program — whether you're processing 10 MB on a laptop or 10 PB on a cluster.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 2: BATCH PIPELINES -->
+    <div class="section" data-id="batch-pipelines">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔧</span><h2>Batch Pipelines &amp; MapReduce</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><strong>MapReduce</strong> (Google, 2004) is the pattern that made distributed batch processing mainstream. It abstracts the complexity of distributing computation across hundreds of machines, handling failures, and coordinating output. The programmer writes two functions; the framework handles everything else.</p>
+
+        <h3>The Three Phases</h3>
+        <ul>
+          <li><strong>Map</strong>: apply a function to each input record and emit (key, value) pairs. Mappers run in parallel across all input partitions — no communication between them. The map phase is embarrassingly parallel.</li>
+          <li><strong>Shuffle</strong>: the framework sorts all emitted pairs by key and routes same-key pairs to the same reducer. This is the expensive, network-intensive step — all intermediate data moves across the cluster.</li>
+          <li><strong>Reduce</strong>: for each key, apply a function to all values associated with that key and emit the final output.</li>
+        </ul>
+
+        <pre><code>// Example: count page views per URL from web server logs
+
+// Map: extract URL as key, emit count = 1
+"GET /api/users HTTP/1.1" → ("/api/users", 1)
+"GET /api/users HTTP/1.1" → ("/api/users", 1)
+"GET /api/posts HTTP/1.1" → ("/api/posts", 1)
+
+// Shuffle: group all pairs by key
+"/api/posts" → [1]
+"/api/users" → [1, 1]
+
+// Reduce: sum counts per URL
+("/api/posts", 1)
+("/api/users", 2)</code></pre>
+
+        <h3>HDFS and Data Locality</h3>
+        <p><strong>HDFS</strong> (Hadoop Distributed File System) is the storage layer MapReduce reads from and writes to. Files are split into blocks (128 MB default), each block replicated 3× across different machines. The critical insight: rather than moving data to the computation, MapReduce moves the <em>computation</em> to the data. The scheduler runs map tasks on (or near) the nodes holding the input blocks, minimizing network transfer. The NameNode tracks which nodes hold which blocks and orchestrates placement.</p>
+
+        <h3>Beyond MapReduce: Dataflow Engines</h3>
+        <p>The fundamental problem with MapReduce: it materializes intermediate results to HDFS after every step. A 10-step pipeline writes to disk 10 times — slow, expensive, and often unnecessary. Spark, Flink, and Apache Beam fix this with <strong>in-memory pipelines and lazy evaluation</strong>.</p>
+        <ul>
+          <li>Define a DAG (directed acyclic graph) of transformations — nothing executes yet.</li>
+          <li>The engine optimizes the execution plan: push down filters, reorder joins, fuse adjacent operations.</li>
+          <li>At execution time, intermediate results stay in memory across stages — only checkpointed to disk on failure or at explicit persist points.</li>
+          <li>Result: 10–100× faster than MapReduce for iterative algorithms (ML training loops, graph processing).</li>
+        </ul>
+
+        <pre><code># Spark: word count — same logic as MapReduce, expressed as transformations
+sc.textFile("s3://logs/")
+  .flatMap(lambda line: line.split(" "))
+  .map(lambda word: (word, 1))
+  .reduceByKey(lambda a, b: a + b)
+  .saveAsTextFile("s3://output/")</code></pre>
+
+        <h3>Idempotency in Batch Jobs</h3>
+        <p>Batch jobs must be safe to retry. If a job fails halfway and restarts, it must produce the same output as if it had run once — no duplicate records, no partial writes. The standard pattern: write outputs to a temporary location first, then atomically rename or move to the final destination once complete. Never partially overwrite the output. Make the job idempotent by design: given the same input and date range, it always produces the same output.</p>
+
+        <h3>Backfill</h3>
+        <p><strong>Backfill</strong> means reprocessing historical data with new logic. You added a new feature to your pipeline (detect a new event type, fix a calculation bug) and need to retroactively compute it for two years of historical data. This requires: immutable inputs (never delete raw data), idempotent outputs (safe to rerun over already-processed partitions), and date-range parameterization (the job takes <code>--start-date</code> and <code>--end-date</code> arguments). Build every batch pipeline with backfill in mind from day one.</p>
+
+        <h3>Orchestration</h3>
+        <p>Pipelines are graphs of dependent jobs. Orchestrators (Airflow, Prefect, Dagster) define the DAG in code: task B runs only after task A succeeds. They handle scheduling (cron-like triggers), retries with exponential backoff, alerting on failure, and dependency management across teams. The key insight: <em>orchestrators manage when and what depends on what; the actual computation runs elsewhere</em> — a Spark cluster, a SQL warehouse, a Python script, an API call. Airflow's fatal flaw: the DAG definition is evaluated every scheduler heartbeat, so heavy Python imports in global scope slow the entire scheduler. Keep DAG files lightweight.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 3: STORAGE FORMATS -->
+    <div class="section" data-id="storage-formats">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">💾</span><h2>Storage Formats &amp; the Data Lake</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>The format you store data in has enormous impact on query performance and storage cost. The choice between row-oriented and column-oriented storage is the most important one in analytical systems.</p>
+
+        <h3>Row-Oriented vs Column-Oriented Storage</h3>
+        <p><strong>Row-oriented</strong> (PostgreSQL, MySQL, most OLTP databases): all columns for a single row are stored together on disk. Fast for: reading a complete row (all columns for one user), writing single records, OLTP workloads where you need to fetch or update a full entity. Slow for: scanning one column across millions of rows — you must read all columns even if you only care about one.</p>
+        <p><strong>Column-oriented</strong> (Parquet, ORC, Redshift, BigQuery): all values for a single column are stored together. A query reading 3 columns from a 100-column table reads roughly 3% of the data on disk. This is the primary reason analytical queries over billions of rows are fast.</p>
+
+        <pre><code>-- Row store: disk layout (each row contiguous)
+[1, "Alice", 30, "US"]
+[2, "Bob",   25, "UK"]
+[3, "Carol", 28, "DE"]
+
+-- Column store: disk layout (each column contiguous)
+user_id col:  [1, 2, 3, ...]
+name col:     ["Alice", "Bob", "Carol", ...]
+age col:      [30, 25, 28, ...]
+country col:  ["US", "UK", "DE", ...]</code></pre>
+
+        <h3>Why Column Compression Is So Effective</h3>
+        <p>A column of integers from 1–1000 repeating has very low entropy — <strong>RLE</strong> (run-length encoding) can compress a million values into a few thousand entries. <strong>Bitmap encoding</strong> works well for low-cardinality columns: country has three values (US, UK, DE) — 2 bits per row rather than a full string. <strong>Dictionary encoding</strong> replaces repeated strings with integer IDs. Columnar files are typically 5–20× smaller than row-oriented equivalents. Smaller files mean fewer bytes to read from disk, which is usually the bottleneck in analytical queries.</p>
+
+        <h3>Parquet</h3>
+        <p><strong>Parquet</strong> is the dominant columnar file format for data lakes. Open source (Apache), it supports nested schemas (lists, maps within records), efficient compression per column (Snappy, Zstd, GZIP), and <strong>predicate pushdown</strong>: the footer of each Parquet file stores min/max statistics for each column within each row group. A query with <code>WHERE date = '2024-01-01'</code> can skip entire row groups whose date range doesn't include that value — without reading the data. Works natively with Spark, Flink, Hive, Presto, Athena, BigQuery external tables, and DuckDB.</p>
+
+        <h3>Avro and ORC</h3>
+        <p><strong>Avro</strong> is a row-oriented binary format optimized for streaming and schema evolution. The schema is embedded in the file or managed separately in a Schema Registry. Fields can be added or removed as long as you provide defaults — readers and writers can be at different schema versions simultaneously. Kafka uses Avro heavily: compact binary on the wire, schema stored centrally in the Confluent Schema Registry.</p>
+        <p><strong>ORC</strong> is columnar like Parquet, originating from the Hive ecosystem. Slightly better compression for Hive workloads in some benchmarks; Parquet is more universally supported across the broader ecosystem. For new projects outside of a pure Hive shop, prefer Parquet.</p>
+
+        <h3>Data Lake</h3>
+        <p>A <strong>data lake</strong> stores raw data in its original format (JSON, CSV, Parquet, Avro) in cheap object storage (S3, GCS, Azure Blob Storage). The philosophy: store everything, pay almost nothing per GB, run computation on demand with any tool that can read the format. Benefits: schema-on-read (decide what the schema means when you query, not when you write), arbitrary compute (Spark, Athena, DuckDB, Flink all read the same files), cost. Problems: <em>data swamps</em> — no schema enforcement, no catalog, no ownership, nobody knows what anything means or whether it's still accurate.</p>
+
+        <h3>Data Lakehouse</h3>
+        <p><strong>Delta Lake</strong>, <strong>Apache Iceberg</strong>, and <strong>Apache Hudi</strong> add ACID transactions, schema enforcement, and time travel to the data lake. Delta Lake maintains a transaction log (analogous to a database WAL) in the same S3 bucket as the data files. Iceberg tracks table snapshots with metadata files and supports hidden partitioning. Key capabilities:</p>
+        <ul>
+          <li><strong>ACID writes</strong>: multiple concurrent writers use optimistic concurrency control — no silent corruption.</li>
+          <li><strong>Time travel</strong>: <code>SELECT * FROM orders VERSION AS OF '2024-01-01'</code> — query any historical snapshot of the table.</li>
+          <li><strong>Schema evolution</strong>: add, rename, or reorder columns without rewriting existing data files.</li>
+          <li><strong>Partition pruning</strong>: the metadata layer tracks which files contain which partition ranges — skip entire S3 prefixes based on query filters without listing the bucket.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- SECTION 4: STREAM PROCESSING -->
+    <div class="section" data-id="stream-processing">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🌊</span><h2>Stream Processing</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Stream processing solves a deceptively hard problem: you have an unbounded sequence of events arriving continuously. You want to compute aggregations, detect patterns, and join with other streams or tables — continuously, with low latency. The core difficulty is that you can never see all the data before producing a result.</p>
+
+        <h3>Event Time vs Processing Time</h3>
+        <p><strong>Processing time</strong> is when the event arrives at the stream processor. Simple, always monotonically increasing. Wrong for any analysis where you care about <em>when things actually happened</em>.</p>
+        <p><strong>Event time</strong> is the timestamp embedded in the event itself — when it actually occurred. This is what you usually want: "how many orders were placed in the hour ending at 14:00?" But event time is hard: events arrive out of order. A mobile app buffers analytics events while offline; when the user reconnects, events timestamped 3 hours ago arrive into your stream. A network partition delayed a batch of events by 90 seconds. You closed and emitted the 14:00 window already. Now what?</p>
+
+        <h3>Watermarks</h3>
+        <p>A <strong>watermark</strong> is a signal that says: "I believe all events with timestamps before time <em>T</em> have now arrived." It's a heuristic, not a guarantee. The stream processor advances the watermark as it observes event timestamps — typically lagging some fixed amount behind the maximum observed event time to allow for stragglers. When the watermark passes the end of a window, the window is finalized and its result emitted. Late events that arrive after the watermark has passed are either dropped (counted in a dropped-events metric) or trigger a correction to the already-emitted result — Flink supports both strategies. The tradeoff: a more conservative watermark (longer lag) catches more late events but increases result latency.</p>
+
+        <h3>Window Types</h3>
+        <ul>
+          <li><strong>Tumbling window</strong>: fixed-size, non-overlapping. Events 10:03:00–10:03:59 form one window; 10:04:00–10:04:59 form the next. Each event belongs to exactly one window. Clean and simple — use for "requests per minute."</li>
+          <li><strong>Hopping window</strong>: fixed-size, overlapping. A 5-minute window advancing every 1 minute means each event appears in up to 5 windows. Produces a smoothed metric that changes gradually rather than resetting abruptly.</li>
+          <li><strong>Sliding window</strong>: contains all events within N time of each other. "Any two events within 5 minutes of each other." Computationally expensive — must maintain state for every possible window boundary.</li>
+          <li><strong>Session window</strong>: grouped by inactivity gap. All events from one user within a 30-minute idle period form one session. Variable duration. The session closes after 30 minutes of silence. Used heavily in web analytics and user behavior analysis.</li>
+        </ul>
+
+        <h3>Exactly-Once Semantics</h3>
+        <p>In a distributed system, a processor can crash mid-computation. Three delivery guarantees:</p>
+        <ul>
+          <li><strong>At-most-once</strong>: fire and forget. Events may be lost on failure. Simple to implement, unacceptable where correctness matters.</li>
+          <li><strong>At-least-once</strong>: retry on failure. Events may be processed multiple times. Acceptable if processing is <em>idempotent</em> — writing the same key to a database twice is fine; charging a user twice is not.</li>
+          <li><strong>Exactly-once</strong>: the system appears as if each event was processed exactly once, even across failures. Achieved via idempotent producers plus transactional writes to the output, or via distributed snapshots (Flink's Chandy-Lamport checkpointing). The performance cost is real: 2–3× lower throughput versus at-least-once, because checkpoint barriers must flow through the entire pipeline before state is committed.</li>
+        </ul>
+
+        <h3>Kafka Streams vs Apache Flink</h3>
+        <p><strong>Kafka Streams</strong> is a library, not a cluster. It runs inside your application process — deploy it the same way you deploy any JVM service. State is stored in local RocksDB instances, backed up to Kafka changelog topics for fault tolerance. Simple to operate, no separate infrastructure. Best for: moderate throughput, stateful per-entity processing (account balance, user session), event-driven microservices that already live in the Kafka ecosystem.</p>
+        <p><strong>Apache Flink</strong> is a full distributed streaming runtime with a dedicated cluster (or Kubernetes operator). True event-time processing with watermarks, complex windowing, stream-table joins, and CEP (complex event processing). Handles terabytes per hour. Best for: high-throughput analytical pipelines, large-scale stateful joins, use cases that require the full expressiveness of a streaming SQL engine. Used by Alibaba, Netflix, Uber, and Lyft at scale.</p>
+
+        <h3>Stream-Table Join</h3>
+        <p>A common pattern: enrich a stream of events with slowly-changing reference data. User activity events arrive in the stream; you want to add the user's name, account tier, and geographic segment from the user profile table. Querying the source database on every event would be too slow and would overload the OLTP database. Instead, the stream processor maintains a <strong>local materialized copy</strong> of the table — updated in real time via CDC — so lookups are in-process rather than network calls. Flink's broadcast state and Kafka Streams' KTable implement this pattern.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 5: DATA WAREHOUSING -->
+    <div class="section" data-id="data-warehousing">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🏛️</span><h2>Data Warehousing &amp; OLAP</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Running analytics directly against your production OLTP database is a classic mistake. A single analyst query scanning 10 million orders consumes all available I/O and degrades the production API for real users. The solution: a separate analytical store with a fundamentally different architecture, fed by ETL or ELT pipelines.</p>
+
+        <h3>OLTP vs OLAP</h3>
+        <ul>
+          <li><strong>Read pattern</strong>: OLTP fetches a small number of rows by primary key or index. OLAP scans millions of rows, aggregating over a subset of columns.</li>
+          <li><strong>Write pattern</strong>: OLTP requires low-latency inserts and updates from the live application. OLAP ingests data in bulk via periodic loads.</li>
+          <li><strong>Data size</strong>: OLTP stores current state — GB to TB. OLAP stores historical accumulation — TB to PB.</li>
+          <li><strong>Users</strong>: OLTP serves the application backend. OLAP serves analysts, data scientists, and BI tools.</li>
+          <li><strong>Examples</strong>: OLTP — PostgreSQL, MySQL, DynamoDB. OLAP — BigQuery, Snowflake, Redshift, ClickHouse.</li>
+        </ul>
+
+        <h3>Star Schema</h3>
+        <p>The standard OLAP data model. A central <strong>fact table</strong> holds one row per event (sales order, page view, sensor reading, ad impression). It is narrow in columns but extremely tall in rows — billions of facts. Surrounding it are <strong>dimension tables</strong> that describe the entities involved in each fact: products, customers, stores, dates. Dimensions are wide (hundreds of descriptive attributes) but short (millions of products at most).</p>
+
+        <pre><code>-- Fact table: one row per sale, thin (only foreign keys + measures)
+CREATE TABLE fact_sales (
+  sale_id       BIGINT,
+  sale_date_id  INT,        -- FK → dim_date
+  customer_id   INT,        -- FK → dim_customer
+  product_id    INT,        -- FK → dim_product
+  store_id      INT,        -- FK → dim_store
+  quantity      INT,
+  revenue_cents BIGINT
+);
+
+-- Dimension table: rich attributes for one entity type
+CREATE TABLE dim_product (
+  product_id        INT PRIMARY KEY,
+  name              VARCHAR,
+  category          VARCHAR,
+  brand             VARCHAR,
+  supplier          VARCHAR,
+  list_price_cents  INT
+);</code></pre>
+
+        <p>Analytics queries join the fact table to one or more dimensions and aggregate: "total revenue by product category in Q1 2024" scans <code>fact_sales</code>, joins <code>dim_product</code> on <code>product_id</code>, filters <code>dim_date</code> to Q1, and groups by <code>dim_product.category</code>. Because fact tables are columnar, scanning billions of rows for only <code>revenue_cents</code> and <code>product_id</code> is fast.</p>
+
+        <h3>ETL vs ELT</h3>
+        <p><strong>ETL</strong> (Extract → Transform → Load): transform the data before loading it into the warehouse. Made sense when warehouse compute was expensive — you didn't want to store raw, unclean data and pay to query it. Transformations run on a dedicated ETL server (Informatica, Talend, custom Spark jobs).</p>
+        <p><strong>ELT</strong> (Extract → Load → Transform): load raw data into the warehouse first, then transform it using the warehouse's own compute engine. Modern warehouses (BigQuery, Snowflake) have effectively unlimited parallelism and charge per byte scanned — iterating on SQL transformations is fast and cheap. ELT is now dominant because it preserves the raw data for reprocessing and lets analysts iterate on transformation logic without engineering support.</p>
+
+        <h3>dbt</h3>
+        <p><strong>dbt</strong> (data build tool) is the dominant ELT transformation layer. Define each transformation as a SQL <code>SELECT</code> statement (a "model"). dbt compiles models into <code>CREATE TABLE AS SELECT</code> or <code>CREATE VIEW</code> statements, resolves dependencies between models (<code>{{ ref('stg_orders') }}</code> tells dbt that this model depends on <code>stg_orders</code>), and runs them in topological order. It also generates documentation from YAML annotations and runs data tests (not null, unique, accepted values, referential integrity). The result: version-controlled, tested, documented SQL transformations — data engineering as software engineering.</p>
+
+        <h3>Modern Data Warehouses</h3>
+        <ul>
+          <li><strong>BigQuery</strong> (Google): serverless, pay per query (per TB scanned). No cluster to provision or tune. Federated queries against GCS, Cloud SQL, and Bigtable. Best for: variable or unpredictable query volume, teams that don't want to manage infrastructure.</li>
+          <li><strong>Snowflake</strong>: decouples compute (virtual warehouses) from storage. Scale compute independently, pause virtual warehouses when idle to stop paying. Multi-cloud (AWS, GCP, Azure). Best for: predictable workloads, organizations running on multiple clouds, workloads that need isolation between teams.</li>
+          <li><strong>Redshift</strong> (AWS): columnar, provisioned nodes. Sort keys and distribution keys must be chosen carefully — wrong choices cause massive query slowdowns. Tight AWS integration (S3 COPY is extremely fast). Best for: existing AWS-centric organizations with high-throughput ETL workloads.</li>
+          <li><strong>DuckDB</strong>: an in-process OLAP engine — like SQLite but for analytics. Runs inside your application or notebook with no server. Reads Parquet and CSV directly from S3. Best for: local analysis, replacing pandas for medium-sized datasets (up to ~50 GB), embedding analytics in applications.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- SECTION 6: CHANGE DATA CAPTURE -->
+    <div class="section" data-id="change-data-capture">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔄</span><h2>Change Data Capture (CDC)</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><strong>Change Data Capture</strong> solves a specific and very common problem: you have an operational PostgreSQL database and you want to sync its data to a search index (Elasticsearch), a data warehouse, a cache, or another service — in near-real-time, without changing the application code, without polling, and without missing any changes including deletes.</p>
+
+        <h3>Why Polling Fails</h3>
+        <p>The naive approach: periodically run <code>SELECT * FROM orders WHERE updated_at &gt; $last_check</code>. Problems accumulate quickly. Deletes are invisible — a deleted row disappears without a trace. The <code>updated_at</code> column must be maintained by the application — every update must set it, which is easy to forget. Latency is proportional to the poll interval. At high poll frequency, you're hammering the production database with expensive range scans. At low frequency, you have high latency. There's no good setting.</p>
+
+        <h3>Reading the Replication Log</h3>
+        <p>CDC observes all data changes by reading the database's internal replication log — the source of truth that the database writes to before committing anything to its data files. This log captures every insert, update, and delete, in the exact committed order, without any polling. The application doesn't need to change. No triggers, no shadow tables, no <code>updated_at</code> columns. The CDC consumer is just another reader of a log that was already being written.</p>
+        <p>In PostgreSQL, this is the <strong>Write-Ahead Log (WAL)</strong>. <em>Logical decoding</em> translates the WAL's internal binary format into a higher-level stream of row changes that external consumers can read. Tools:</p>
+        <ul>
+          <li><strong>Debezium</strong>: open source, the most widely used CDC platform. Connectors for PostgreSQL, MySQL, MongoDB, Oracle, SQL Server. Publishes change events to Kafka topics.</li>
+          <li><strong>Postgres logical replication</strong>: built-in, native. Subscribe to a publication from another Postgres instance — but limited to Postgres-to-Postgres use cases.</li>
+          <li><strong>Fivetran / Airbyte</strong>: managed CDC that handles the operational complexity, useful when you just want data in a warehouse without running Debezium yourself.</li>
+        </ul>
+
+        <pre><code>-- Architecture: one source, multiple derived systems
+PostgreSQL WAL
+  → Debezium connector (Kafka Connect)
+    → Kafka topic: "orders.cdc"
+      ├── Elasticsearch sink connector  (search index)
+      ├── Snowflake sink connector      (data warehouse)
+      └── Custom consumer               (cache invalidation)</code></pre>
+
+        <h3>Debezium Event Format</h3>
+        <p>Each change event is a JSON (or Avro) payload containing the full before and after state of the row:</p>
+        <pre><code>{
+  "before": { "id": 1, "status": "pending",  "total": 4999 },
+  "after":  { "id": 1, "status": "shipped",  "total": 4999 },
+  "op":     "u",                      // u=update, c=create, d=delete, r=read (snapshot)
+  "ts_ms":  1712345678000,            // commit timestamp from WAL
+  "source": {
+    "table": "orders",
+    "lsn":   12345678                 // log sequence number — monotonically increasing
+  }
+}</code></pre>
+        <p>The <strong>log sequence number (LSN)</strong> is crucial: it gives a total ordering of all changes. Consumers track their LSN offset to know where they left off, exactly like a Kafka consumer offset.</p>
+
+        <h3>Initial Snapshot</h3>
+        <p>When you first deploy CDC, you can't just start reading from the current WAL position — you'd miss everything written before CDC started. Debezium handles this with a <strong>consistent initial snapshot</strong>: it takes a lock, reads the current LSN, releases the lock, then performs a full table scan to emit a synthetic "read" event for every existing row. When the scan completes, it switches to streaming changes from the LSN captured at the start. New consumers get a consistent view of the entire table state, followed by all changes from that point forward.</p>
+
+        <h3>Log Compaction</h3>
+        <p>Kafka can <strong>compact</strong> a CDC topic: for each key (the row's primary key), only the most recent event is retained. Older intermediate states are garbage-collected. A new consumer bootstrapping from the compacted topic sees the current state of every row without replaying years of history. Combined with the initial snapshot approach above, compacted topics let any new downstream system onboard quickly without touching the source database again.</p>
+
+        <h3>Operational Considerations</h3>
+        <ul>
+          <li><strong>WAL retention</strong>: the source database must retain WAL long enough for CDC consumers to keep up. If a consumer falls too far behind, the database may discard WAL it still needs, breaking the consumer. Monitor consumer lag aggressively.</li>
+          <li><strong>Replication slots</strong>: PostgreSQL requires a <em>replication slot</em> per CDC consumer. Slots prevent WAL cleanup until the consumer has caught up. A consumer that dies with its slot still active will cause WAL to accumulate indefinitely — eventually filling the disk and crashing the database. Dead slots must be dropped promptly.</li>
+          <li><strong>Schema changes</strong>: CDC breaks when columns are added, renamed, or dropped without coordination. Debezium handles many additive changes, but destructive schema changes require a plan: pause the connector, migrate, update the schema in the Schema Registry, resume.</li>
+          <li><strong>Ordering guarantee</strong>: CDC preserves write order exactly as committed. If you update a row twice in quick succession, consumers see both updates in order — never reversed, never interleaved with unrelated changes to other rows committed between them.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- GO DEEPER -->
+    <div class="section" style="border-style:dashed;">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
+      </div>
+      <div class="section-body">
+        <div class="resource-list">
+          <div class="resource"><span class="resource-type book">book</span><div class="resource-content"><div class="resource-title">Designing Data-Intensive Applications — Martin Kleppmann</div><div class="resource-author">O'Reilly, 2017</div><div class="resource-desc">Chapters 3, 10, and 11 are the canonical treatment of columnar storage, batch processing, and stream processing. Arguably the best technical book written in the last decade. Read it cover to cover if you work anywhere near data systems.</div></div></div>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">Apache Flink Documentation — Concepts</div><div class="resource-author">flink.apache.org/docs</div><div class="resource-desc">The concepts section on time, watermarks, windows, and state is exceptionally well-written. The DataStream API tutorial gets you hands-on quickly. Read the "Stateful Stream Processing" and "Timely Stream Processing" sections to build a rigorous mental model.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">The Log: What every software engineer should know about real-time data's unifying abstraction</div><div class="resource-author">Jay Kreps — engineering.linkedin.com</div><div class="resource-desc">The essay that motivated Kafka's design and explains why the append-only log is a universal primitive underlying databases, stream processing, and distributed systems. Essential reading for understanding why CDC works the way it does.</div></div></div>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">dbt Documentation</div><div class="resource-author">docs.getdbt.com</div><div class="resource-desc">Start with "What is dbt?" then the quickstart tutorial. The guides on models, tests, and sources cover the full workflow. dbt has become the standard for transformation in the modern data stack — understanding it is now a prerequisite for data engineering roles.</div></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <a href="message-queues.html">← Message Queues</a>
+    <a href="../backend.html" class="center">All modules</a>
+    <a href="linux.html">Linux →</a>
+  </div>
+</footer>
+
+<script src="../js/app.js"></script>
+<script>
+  initSections('data-processing');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
+</script>
+</body>
+</html>

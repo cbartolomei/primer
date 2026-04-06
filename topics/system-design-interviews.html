@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Design Interviews — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="inner">
+    <a href="../backend.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 5 sections understood</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>🎯 System Design Interviews</h1>
+    <p class="subtitle">Worked examples of the most common system design questions — URL shorteners, rate limiters, notification systems, and social feeds. The framework and the tradeoffs interviewers are actually looking for.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <!-- SECTION 1: THE FRAMEWORK -->
+    <div class="section" data-id="design-framework">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🗺️</span><h2>The Framework</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><strong>What interviewers are actually evaluating</strong>: not whether you get "the right answer" (there isn't one), but whether you can: scope a problem, identify the right tradeoffs for the given scale, make defensible decisions, and communicate clearly while thinking. A junior engineer produces a solution; a senior engineer produces a solution with explicit reasoning about what was sacrificed.</p>
+
+        <h3>The 4-Step Framework</h3>
+
+        <p><strong>Step 1 — Clarify requirements (5 min)</strong>. Never start designing immediately. Ask until you know:</p>
+        <ul>
+          <li>Scale: DAU, QPS (read vs write separately), data size, growth rate</li>
+          <li>Latency requirements: p99 &lt; 100ms? Or is eventual okay?</li>
+          <li>Availability: 99.9% (8.7h downtime/year) vs 99.99% (52 min/year)?</li>
+          <li>Consistency: must reads always reflect latest write? Or eventual?</li>
+          <li>Existing constraints: must use AWS? Specific languages? Existing systems to integrate?</li>
+          <li>What's in scope: "Design Twitter" is infinite — pin down which features</li>
+        </ul>
+
+        <p><strong>Step 2 — Capacity estimation (3-5 min)</strong>. Back-of-envelope math. This drives your architecture choices.</p>
+        <ul>
+          <li>QPS: DAU × actions_per_day / 86400. 100M DAU × 10 actions = ~12K QPS average, ~50K peak.</li>
+          <li>Storage: object_size × objects_per_day × retention_days</li>
+          <li>Bandwidth: QPS × response_size</li>
+          <li>Don't be precise — orders of magnitude matter. 10K QPS means distributed; 100 QPS means a single server.</li>
+        </ul>
+
+        <p><strong>Step 3 — High-level design (10 min)</strong>. Start with a simple design that works, then scale it.</p>
+        <ul>
+          <li>Start with: clients → load balancer → application servers → database</li>
+          <li>Identify the bottlenecks: reads? writes? storage? compute?</li>
+          <li>Add components to address each bottleneck: cache for reads, queue for write smoothing, CDN for static assets, read replicas for read scale, sharding for write scale</li>
+        </ul>
+
+        <p><strong>Step 4 — Deep dive (15 min)</strong>. Pick 2-3 of the most interesting/risky components and go deep:</p>
+        <ul>
+          <li>Data model: exact schema, how queries are served</li>
+          <li>Algorithm: how does the core logic work</li>
+          <li>Failure scenarios: what happens if component X dies?</li>
+          <li>Tradeoffs: why this choice over the alternatives?</li>
+        </ul>
+
+        <h3>What to Say Out Loud</h3>
+        <p>Narrate your thinking. "I'm starting simple and will add complexity as needed." "This choice trades consistency for availability, which is acceptable here because..." "I'm going to flag this as a potential bottleneck and come back to it." Silence for 2 minutes while drawing is bad; silence with narration ("let me think through the write path") is fine.</p>
+
+        <h3>Numbers to Internalize</h3>
+        <table>
+          <thead><tr><th>Fact</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>QPS a single server handles</td><td>10K–50K req/s (simple)</td></tr>
+            <tr><td>QPS a single DB handles</td><td>1K–5K reads/s, 1K writes/s</td></tr>
+            <tr><td>Redis throughput</td><td>100K–1M ops/s</td></tr>
+            <tr><td>L1 cache hit</td><td>~0.5 ns</td></tr>
+            <tr><td>Same-DC network round trip</td><td>~0.5 ms</td></tr>
+            <tr><td>SSD random read</td><td>~100 µs</td></tr>
+            <tr><td>Cross-region network</td><td>60–300 ms</td></tr>
+            <tr><td>Typical CDN hit ratio</td><td>80–95%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- SECTION 2: URL SHORTENER -->
+    <div class="section" data-id="url-shortener">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔗</span><h2>Design a URL Shortener</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>This is the "hello world" of system design. Use it to practice the framework end-to-end.</p>
+
+        <h3>Clarify</h3>
+        <ul>
+          <li>100M new URLs/day (1150 writes/sec)</li>
+          <li>10:1 read:write ratio → 11,500 reads/sec</li>
+          <li>Links live for 10 years</li>
+          <li>Short code: 7 characters (base62: a-z, A-Z, 0-9 → 62^7 = 3.5 trillion unique codes)</li>
+          <li>No custom aliases for now</li>
+        </ul>
+
+        <h3>Capacity</h3>
+        <ul>
+          <li>Storage: 100M URLs/day × 365 × 10 = 365B URLs × 500 bytes = ~180TB over 10 years</li>
+          <li>Read QPS: ~11,500/s → single cache-backed service handles this</li>
+        </ul>
+
+        <h3>Core Design</h3>
+        <pre><code>User → Load Balancer → App Servers → PostgreSQL (source of truth)
+                              ↓
+                          Redis cache (short_code → long_url)</code></pre>
+
+        <h3>Generating Short Codes</h3>
+        <p>Three approaches:</p>
+        <ol>
+          <li><strong>Hash-based</strong>: MD5/SHA1 the long URL, take first 7 characters. Problem: collisions. Two URLs could hash to the same 7-char prefix. Need collision detection and retry. Also: same URL twice produces same short code (good or bad depending on requirements).</li>
+          <li><strong>Random ID</strong>: generate a random 7-char base62 string, check uniqueness in DB. Problem: at scale, collision probability grows (birthday problem). At 3.5T space with 365B URLs: ~10% collision rate by year 10. Still manageable with retry.</li>
+          <li><strong>Counter-based</strong> (recommended): maintain a global counter (or per-service counter ranges). Encode the counter as base62. 0→"a", 1→"b", 62→"ba". Guarantees uniqueness, no collision checks. Problem: predictable (users can enumerate URLs) and requires coordination (distributed counter needs a service like Redis INCR or a ticket server like Flickr's approach).</li>
+        </ol>
+
+        <h3>Data Model</h3>
+        <pre><code>CREATE TABLE urls (
+  id BIGINT PRIMARY KEY,           -- the counter value
+  short_code VARCHAR(8) NOT NULL,
+  long_url TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  expires_at TIMESTAMPTZ,
+  user_id BIGINT                   -- nullable, for analytics
+);
+CREATE UNIQUE INDEX ON urls(short_code);
+CREATE INDEX ON urls(long_url);    -- for deduplication if needed</code></pre>
+
+        <h3>The Redirect Flow</h3>
+        <ol>
+          <li>Request: <code>GET /abc1234</code></li>
+          <li>Check Redis cache: <code>GET url:abc1234</code> → cache hit → return 301/302 redirect</li>
+          <li>Cache miss → query PostgreSQL → cache result with TTL → redirect</li>
+          <li>301 (permanent): browser caches, reduces future load, can't track clicks. 302 (temporary): browser doesn't cache, allows click tracking, slightly higher server load. Most URL shorteners use 302 for analytics.</li>
+        </ol>
+
+        <h3>Scaling to 10× Load (100K reads/sec)</h3>
+        <ul>
+          <li>Redis cluster (sharded by short_code) — cache hit rate ~99% at 10 years, so DB load stays low</li>
+          <li>CDN: put the redirect service behind CloudFront. Most redirects happen at the edge with zero origin hit.</li>
+          <li>Read replicas for DB: the 1% cache miss goes to a read replica</li>
+          <li>Writes stay on primary — 1150 writes/sec is fine for PostgreSQL</li>
+        </ul>
+
+        <p><strong>Custom domains</strong>: <code>go.example.com/abc1234</code> — store the domain with the URL record, route by domain + code.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 3: RATE LIMITER -->
+    <div class="section" data-id="rate-limiter">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🚦</span><h2>Design a Rate Limiter</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <h3>Clarify</h3>
+        <ul>
+          <li>Limit API requests per user: 1000 req/10 min</li>
+          <li>Applied at API gateway level (before business logic)</li>
+          <li>Distributed: multiple gateway nodes must share state</li>
+          <li>Return 429 with <code>Retry-After</code> header when exceeded</li>
+        </ul>
+
+        <h3>Algorithms</h3>
+        <p>Covered in-depth in the API Design topic — summary here for interview context:</p>
+        <ul>
+          <li><strong>Token bucket</strong>: N tokens, refill at R/sec. Each request consumes a token. Allows bursts up to N. Implementation: store <code>{tokens, last_refill}</code> in Redis, update on each request.</li>
+          <li><strong>Sliding window log</strong>: store timestamps of all requests in last window. Count timestamps. Exact but memory-intensive (store every request timestamp).</li>
+          <li><strong>Sliding window counter</strong> (recommended): divide into fixed windows, interpolate between current and previous window count. <code>count = prev_count × (1 - elapsed/window) + curr_count</code>. Memory efficient, approximately accurate.</li>
+        </ul>
+
+        <h3>Storage</h3>
+        <p>Redis is the standard choice. Single INCR operation is atomic. No race conditions. Example using Redis for fixed window:</p>
+        <pre><code>Key: rate_limit:{user_id}:{window_start_unix}
+Value: INCR → atomic increment, EXPIRE → auto-cleanup
+
+On each request:
+  key = "rl:user123:$(floor(now/600))"  # 10-minute window
+  count = INCR key
+  if count == 1: EXPIRE key 600
+  if count > 1000: return 429</code></pre>
+
+        <h3>Sliding Window with Sorted Set (More Accurate)</h3>
+        <pre><code>Key: rate_limit:{user_id}
+Operation:
+  now = current timestamp (ms)
+  window_start = now - 600000ms
+  MULTI/EXEC:
+    ZREMRANGEBYSCORE key 0 window_start   # remove old entries
+    ZADD key now now                       # add current request
+    ZCARD key                              # count in window
+    EXPIRE key 600
+  if count > 1000: return 429</code></pre>
+        <p>Atomic via Lua script or Redis transaction.</p>
+
+        <h3>Distributed Rate Limiter Design</h3>
+        <pre><code>Request → API Gateway (any node) → Redis Cluster → Allow/Deny
+                                 (rate limit state)</code></pre>
+        <p>All gateway nodes share the same Redis cluster. Consistent rate limits regardless of which node handles the request. Redis Cluster shards by user_id key — all requests for a user go to the same shard.</p>
+
+        <h3>Headers to Return</h3>
+        <pre><code>X-RateLimit-Limit: 1000
+X-RateLimit-Remaining: 847
+X-RateLimit-Reset: 1712345678    # Unix timestamp when window resets
+Retry-After: 42                  # seconds until retry (on 429)</code></pre>
+
+        <h3>Edge Cases to Discuss</h3>
+        <ul>
+          <li><strong>What if Redis is down?</strong> Fail open (allow requests) or fail closed (deny all). Usually fail open — availability &gt; strict limiting for most APIs.</li>
+          <li><strong>Distributed clock skew?</strong> Small skew (ms) is acceptable for rate limiting. Use Redis time (<code>TIME</code> command) as the authoritative clock.</li>
+          <li><strong>Per-endpoint limits?</strong> Store <code>rl:{user_id}:{endpoint}</code> or <code>rl:{user_id}</code> for global. Separate keys.</li>
+          <li><strong>IP-based limiting for unauthenticated routes?</strong> Same pattern, key by IP.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- SECTION 4: NOTIFICATION SERVICE -->
+    <div class="section" data-id="notification-service">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔔</span><h2>Design a Notification Service</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <h3>Clarify</h3>
+        <ul>
+          <li>Channels: push (iOS, Android), email, SMS</li>
+          <li>Volume: 10M notifications/day (~115/sec average, 1000/sec peak)</li>
+          <li>Delivery: best-effort (not transactional — missing a "like" notification is okay)</li>
+          <li>Priority: some notifications are high priority (security alerts), most are normal</li>
+          <li>Personalization: user preferences (opt-out by channel/type)</li>
+        </ul>
+
+        <h3>High-Level Flow</h3>
+        <pre><code>Triggering service → Notification Service API → Queue → Workers → 3rd party providers
+                                                         ├── iOS: APNs (Apple)
+                                                         ├── Android: FCM (Google)
+                                                         ├── Email: SendGrid / SES
+                                                         └── SMS: Twilio</code></pre>
+
+        <p><strong>Why a queue between API and workers</strong>: the triggering service (e.g., "user got a like") just needs to enqueue a notification request and return. Workers pick up jobs and call the slow 3rd-party APIs (APNs, FCM, etc.). Decouples throughput from 3rd-party latency. Allows retry on failure. Separate queues per channel (email queue, push queue) — an APNs outage doesn't block email sending.</p>
+
+        <h3>Data Model</h3>
+        <pre><code>-- User notification preferences
+CREATE TABLE user_preferences (
+  user_id BIGINT,
+  channel VARCHAR(10),       -- 'push', 'email', 'sms'
+  notif_type VARCHAR(50),    -- 'like', 'comment', 'security'
+  enabled BOOLEAN DEFAULT true,
+  PRIMARY KEY (user_id, channel, notif_type)
+);
+
+-- Device tokens for push
+CREATE TABLE device_tokens (
+  user_id BIGINT,
+  token TEXT,
+  platform VARCHAR(10),     -- 'ios', 'android'
+  created_at TIMESTAMPTZ
+);
+
+-- Notification log (for deduplication and analytics)
+CREATE TABLE notifications (
+  id UUID PRIMARY KEY,
+  user_id BIGINT,
+  type VARCHAR(50),
+  channel VARCHAR(10),
+  status VARCHAR(20),        -- 'pending', 'sent', 'failed', 'unsubscribed'
+  sent_at TIMESTAMPTZ,
+  payload JSONB
+);</code></pre>
+
+        <h3>Worker Logic</h3>
+        <ol>
+          <li>Pull from queue</li>
+          <li>Load user preferences — skip if user opted out of this channel/type</li>
+          <li>Load device tokens (for push) or contact info (email/SMS)</li>
+          <li>Call 3rd-party provider (APNs, FCM, SendGrid)</li>
+          <li>Handle response: mark sent, or retry with backoff on failure</li>
+          <li>Handle unsubscribe/invalid token responses from providers (FCM returns <code>NotRegistered</code> for uninstalled apps → delete that token)</li>
+        </ol>
+
+        <h3>Retry Strategy</h3>
+        <p>Exponential backoff with jitter. 3rd-party providers rate limit and have transient failures. Dead-letter queue after N retries — alert the ops team, don't retry indefinitely.</p>
+
+        <h3>Deduplication</h3>
+        <p>If the triggering service sends the same notification twice (retry on its end), you must not send it twice. Deduplicate on <code>(user_id, notif_type, reference_id)</code> — e.g., <code>(user_123, 'like', post_456)</code>. Check against the notification log before enqueueing.</p>
+
+        <h3>Fan-Out for Broadcast Notifications</h3>
+        <p>Sending to 100M users → can't do this in a single job. Partition users (by ID range), spawn parallel workers. Pre-compute batches during off-peak hours. Track progress so a crash can resume.</p>
+
+        <h3>Priority Queues</h3>
+        <p>Separate high-priority queue (security alerts: password change, login from new device) processed by dedicated workers with no throttling. Normal queue can shed load during peaks.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 5: SOCIAL FEED -->
+    <div class="section" data-id="social-feed">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📰</span><h2>Design a Social Feed</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>The news feed problem (Twitter/Instagram home timeline) is a canonical example of read vs write amplification tradeoffs.</p>
+
+        <h3>Clarify</h3>
+        <ul>
+          <li>100M DAU, 50M posts/day (580 writes/sec)</li>
+          <li>Each user follows ~200 others on average</li>
+          <li>Feed shows most recent 1000 posts from followed users</li>
+          <li>Read:write ratio = 100:1 (users scroll far more than they post)</li>
+          <li>Latency: feed must load in &lt; 200ms</li>
+        </ul>
+
+        <h3>The Naive Approach — Pull Model (Fan-Out on Read)</h3>
+        <p>On each feed request: get all followees → query their posts → merge and sort.</p>
+        <p>Problem: following 200 users = 200 DB queries per feed load. At 100M DAU and 100 feed loads/day = 10B queries/day = 115K QPS just for feed reads. Even with caching, this doesn't work at scale.</p>
+
+        <h3>Push Model (Fan-Out on Write)</h3>
+        <p>When a user posts, push the post to every follower's feed cache immediately.</p>
+        <pre><code>User posts → write to DB → publish event → fan-out worker →
+  for each follower: prepend post to follower's feed cache (Redis list)</code></pre>
+        <p>Feed read = single Redis list read. O(1), sub-millisecond.</p>
+        <p>Problem: celebrity users (10M followers). A tweet from @elonmusk triggers 10M fan-out writes. At 580 celebrity tweets/day, that's 5.8B writes/day from fan-out alone.</p>
+
+        <h3>Hybrid Approach (Twitter's Actual Solution)</h3>
+        <ul>
+          <li><strong>Normal users</strong> (&lt; N followers, e.g., 10K): fan-out on write. Their posts are pushed to all followers' feed caches immediately.</li>
+          <li><strong>Celebrity users</strong> (&gt; N followers): fan-out on read for their posts. Their posts are NOT pushed. When you load your feed, the service fetches recent posts from celebrity accounts you follow and merges them with your pre-computed feed.</li>
+        </ul>
+        <pre><code>Feed load:
+  1. Fetch your pre-computed feed from Redis (fan-out-on-write posts)
+  2. Fetch recent posts from your followed celebrities (fan-out-on-read)
+  3. Merge and sort by timestamp
+  4. Return top 20</code></pre>
+        <p>The merge is cheap because celebrity count is small (you follow few celebrities) and their posts are cached globally (not per-follower).</p>
+
+        <h3>Data Model</h3>
+        <pre><code>-- Posts table
+CREATE TABLE posts (
+  post_id BIGINT PRIMARY KEY,
+  user_id BIGINT,
+  content TEXT,
+  created_at TIMESTAMPTZ,
+  media_url TEXT
+);
+CREATE INDEX ON posts(user_id, created_at DESC);
+
+-- Social graph (who follows whom)
+CREATE TABLE follows (
+  follower_id BIGINT,
+  followee_id BIGINT,
+  created_at TIMESTAMPTZ,
+  PRIMARY KEY (follower_id, followee_id)
+);
+CREATE INDEX ON follows(followee_id);  -- "give me all followers of X"</code></pre>
+
+        <h3>Feed Cache (Redis)</h3>
+        <ul>
+          <li>Key: <code>feed:{user_id}</code></li>
+          <li>Value: Redis sorted set, scored by timestamp, members are post IDs</li>
+          <li>Size limit: keep last 1000 post IDs. Older posts fetched from DB.</li>
+          <li>TTL: evict if user hasn't logged in for 30 days (don't fan-out to inactive users)</li>
+        </ul>
+
+        <h3>Ranking</h3>
+        <p>Simple reverse chronological is easy. Algorithmic ranking (like Instagram/TikTok) scores posts by engagement signals (likes, comments, shares, watch time) weighted by recency and relationship strength. This requires a scoring service that runs models. Out of scope for basic interview, worth mentioning as a follow-up.</p>
+
+        <h3>Deep-Dive Questions the Interviewer Might Ask</h3>
+        <ul>
+          <li><strong>"What if the DB with posts goes down?"</strong> — read from cache, degrade gracefully for new posts</li>
+          <li><strong>"How do you handle a new user with no follows?"</strong> — onboarding recommendations, trending posts</li>
+          <li><strong>"User unfollows someone — remove their posts from the feed?"</strong> — lazy deletion (posts stay until feed is refreshed), or active fan-out of delete events</li>
+          <li><strong>"How do you serve the feed globally?"</strong> — regional Redis clusters, geo-routing users to nearest region, cross-region replication of write events</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- GO DEEPER -->
+    <div class="section" style="border-style:dashed;">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
+      </div>
+      <div class="section-body">
+        <div class="resource-list">
+          <div class="resource"><span class="resource-type book">book</span><div class="resource-content"><div class="resource-title">System Design Interview – An Insider's Guide (Vol. 1 &amp; 2)</div><div class="resource-author">Alex Xu</div><div class="resource-desc">The most widely referenced interview prep book. Each chapter follows the 4-step framework on a different problem. Volume 2 covers harder problems (Google Maps, ad click aggregation, stock exchange). Read both cover to cover — the pattern recognition across problems is the value.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Designing Data-Intensive Applications</div><div class="resource-author">Martin Kleppmann</div><div class="resource-desc">Not interview prep, but essential for building the underlying mental models. Chapters on replication, partitioning, and distributed transactions give you the vocabulary and depth to justify your tradeoffs in interviews. If you understand chapters 5–9, your interviews will go differently.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">High Scalability — Real Architecture Examples</div><div class="resource-author">highscalability.com</div><div class="resource-desc">Blog documenting the real architectures of major systems (Twitter, Instagram, Slack, Pinterest, etc.) as they scaled. Read the case studies for systems similar to what you're being asked to design. Real decisions are messier and more instructive than textbook examples.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">ByteByteGo — System Design Newsletter</div><div class="resource-author">Alex Xu — blog.bytebytego.com</div><div class="resource-desc">Concise visual explanations of common system design problems. Good for quick refreshers on specific topics (consistent hashing, Bloom filters, CDN architecture). The diagrams are consistently clear and interview-ready.</div></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <a href="search.html">← Search</a>
+    <a href="../backend.html" class="center">All modules</a>
+    <span></span>
+  </div>
+</footer>
+
+<script src="../js/app.js"></script>
+<script>
+  initSections('system-design-interviews');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
+</script>
+</body>
+</html>

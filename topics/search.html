@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Search — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="inner">
+    <a href="../backend.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 6 sections understood</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>🔍 Search</h1>
+    <p class="subtitle">Full-text search, relevance ranking, and the engine internals that make Elasticsearch fast. When to use search, how to design indexes, and the patterns that power autocomplete, faceted filtering, and geo queries.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <!-- SECTION 1: INVERTED INDEX -->
+    <div class="section" data-id="inverted-index">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📑</span><h2>How Search Works: Inverted Indexes</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><strong>Why LIKE is slow</strong>: <code>SELECT * FROM posts WHERE body LIKE '%javascript%'</code> performs a full table scan — every row must be read, every character checked. No index can help a leading-wildcard LIKE. At 10M rows it's seconds; at 100M rows it's minutes. Full-text search exists to solve this.</p>
+
+        <p><strong>The inverted index</strong>: the core data structure behind every search engine. Instead of storing documents and scanning them, build a mapping from terms to the list of documents containing them.</p>
+
+        <pre><code>Document 1: "Kafka processes events in real time"
+Document 2: "Real-time event processing with Flink"
+Document 3: "Kafka streams and Flink both process events"
+
+Inverted index:
+kafka     → [doc1, doc3]
+processes → [doc1]
+events    → [doc1, doc2, doc3]
+real      → [doc1, doc2]
+time      → [doc1, doc2]
+event     → [doc2, doc3]
+flink     → [doc2, doc3]
+streams   → [doc3]
+both      → [doc3]
+process   → [doc3]</code></pre>
+
+        <p>A query for "kafka events" intersects the posting lists for <code>kafka</code> ([doc1, doc3]) and <code>events</code> ([doc1, doc2, doc3]) → [doc1, doc3]. Both posting lists are sorted by doc ID — intersection is O(N) via merge.</p>
+
+        <p><strong>Posting lists</strong>: each entry in the inverted index maps a term to a posting list — an ordered list of document IDs that contain that term. Each entry can also store term frequency (how many times the term appears in that doc), field position (for phrase queries — "exact phrase" matching requires positions), and other metadata.</p>
+
+        <p><strong>Segments</strong>: Lucene (the library underlying Elasticsearch) writes index data in immutable segments. A segment is a complete mini-index. New documents go into an in-memory buffer, then flushed as a new segment. Segments are merged periodically (fewer segments = faster queries). Deleted documents are marked with a tombstone in the segment's delete bitset — they're excluded from results until the segment is merged away. This is why deletes don't immediately free space.</p>
+
+        <p><strong>Near-real-time search</strong>: Lucene's refresh operation flushes the in-memory buffer to a new (unsearched) segment and makes it visible. Default refresh interval in Elasticsearch: 1 second. This means a document is searchable ~1s after indexing. Not instant, but close. Refresh is cheap (no fsync); flush (durability) is expensive (fsync to disk).</p>
+
+        <p><strong>Why search scales differently than databases</strong>: a database update is in-place — find the row, change bytes. A search index update means: delete old document (tombstone), index new document (new segment). High update rates produce many small segments and many tombstones. Elasticsearch merge policies handle this, but write-heavy workloads require tuning (larger <code>index.refresh_interval</code>, bulk indexing, <code>index.merge.policy</code>).</p>
+      </div>
+    </div>
+
+    <!-- SECTION 2: RELEVANCE SCORING -->
+    <div class="section" data-id="relevance-scoring">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🎯</span><h2>Relevance Scoring: TF-IDF &amp; BM25</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><strong>The problem</strong>: you have 10,000 documents containing the word "java". Which should rank highest for the query "java concurrency"?</p>
+
+        <p><strong>TF-IDF</strong> (Term Frequency–Inverse Document Frequency): the classic scoring formula, used by Lucene for decades.</p>
+        <ul>
+          <li><strong>TF</strong> (term frequency): how often the term appears in this document. More occurrences → higher score. A document mentioning "concurrency" 10 times is more about concurrency than one mentioning it once.</li>
+          <li><strong>IDF</strong> (inverse document frequency): how rare the term is across all documents. A term appearing in 90% of documents (like "the") is useless for discrimination — low IDF. A term appearing in 0.1% of documents is highly discriminating — high IDF.</li>
+          <li>Score = TF × IDF (roughly). In practice, TF is sqrt-dampened and IDF is log-scaled.</li>
+        </ul>
+
+        <p><strong>BM25</strong> (Best Match 25): the current default in Elasticsearch (since version 5). Improves TF-IDF in two ways:</p>
+        <ul>
+          <li><strong>TF saturation</strong>: TF-IDF reward grows unboundedly with more occurrences. BM25 applies saturation — a document mentioning a term 100× is not 10× better than one mentioning it 10×. Controlled by parameter <code>k1</code> (default 1.2).</li>
+          <li><strong>Field length normalization</strong>: a term in a short title is more significant than the same term buried in a 10,000-word document. BM25 normalizes by field length. Controlled by parameter <code>b</code> (default 0.75, 0=no normalization, 1=full normalization).</li>
+        </ul>
+
+        <pre><code>BM25 score = IDF × (TF × (k1 + 1)) / (TF + k1 × (1 - b + b × fieldLen/avgFieldLen))</code></pre>
+
+        <p><strong>Field boosting</strong>: different fields should contribute differently to relevance. A match in the title is more important than a match in the body. Boost title matches 3×:</p>
+        <pre><code>{
+  "query": {
+    "multi_match": {
+      "query": "java concurrency",
+      "fields": ["title^3", "body", "tags^2"]
+    }
+  }
+}</code></pre>
+
+        <p><strong>Function score queries</strong>: combine text relevance with business signals. Boost newer documents, boost documents with more clicks, decay score by distance from user location. Example: news search — a highly relevant but week-old article should score lower than a slightly less relevant but fresh article.</p>
+        <pre><code>{
+  "function_score": {
+    "query": { "match": { "body": "kafka" } },
+    "functions": [
+      { "gauss": { "published_at": { "origin": "now", "scale": "7d", "decay": 0.5 } } }
+    ]
+  }
+}</code></pre>
+
+        <p><strong>When scoring matters less than you think</strong>: for many use cases, filtering is more important than ranking. Searching a product catalog for "blue 512GB SSD under $200" — the filter (category, color, storage, price) narrows results to 5 products, and ranking within 5 is barely noticed. BM25 tuning matters most when result counts are high and users care about rank.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 3: ANALYZERS -->
+    <div class="section" data-id="analyzers">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔬</span><h2>Analyzers &amp; Text Processing</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><strong>What an analyzer does</strong>: transforms raw text into terms (tokens) for the inverted index. Applied at index time AND at query time (using the same analyzer so they match). Three stages: character filters → tokenizer → token filters.</p>
+
+        <p><strong>Character filters</strong>: preprocessing on raw text. Strip HTML tags (<code>html_strip</code>), replace characters (convert <code>&amp;</code> to <code>and</code>), apply regex substitutions. Run before tokenization.</p>
+
+        <p><strong>Tokenizers</strong>: split text into tokens. <code>standard</code> tokenizer: splits on whitespace and punctuation, lowercases. <code>whitespace</code>: splits only on whitespace (preserves punctuation). <code>keyword</code>: no splitting — the entire field value is one token. <code>ngram</code> / <code>edge_ngram</code>: generate character substrings (used for prefix/autocomplete).</p>
+
+        <p><strong>Token filters</strong>: transform individual tokens. <code>lowercase</code> (essential — "Java" and "java" should match). <code>stop</code> (remove stopwords — "the", "a", "is"). <code>stemmer</code> (reduce to root form — "running" → "run", "bikes" → "bike"). <code>synonym</code> (expand — "auto" → ["auto", "car", "automobile"]). <code>ascii_folding</code> (convert "café" → "cafe").</p>
+
+        <p><strong>The standard analyzer</strong> (Elasticsearch default): standard tokenizer + lowercase + stop words. Good for English prose, bad for code, URLs, emails, product SKUs.</p>
+
+        <p><strong>Custom analyzer example</strong> — for a code documentation search:</p>
+        <pre><code>{
+  "settings": {
+    "analysis": {
+      "analyzer": {
+        "code_analyzer": {
+          "tokenizer": "standard",
+          "filter": ["lowercase", "word_delimiter_graph"]
+        },
+        "autocomplete_analyzer": {
+          "tokenizer": "standard",
+          "filter": ["lowercase", "autocomplete_filter"]
+        },
+        "autocomplete_search_analyzer": {
+          "tokenizer": "standard",
+          "filter": ["lowercase"]
+        }
+      },
+      "filter": {
+        "autocomplete_filter": {
+          "type": "edge_ngram",
+          "min_gram": 2,
+          "max_gram": 20
+        }
+      }
+    }
+  }
+}</code></pre>
+
+        <p><strong>Language-specific analyzers</strong>: Elasticsearch ships with language analyzers for 30+ languages. <code>english</code> analyzer applies Porter stemmer + English stopwords. <code>german</code> handles compound words (German: <code>Kraftfahrzeugbrief</code> → <code>kraft</code>, <code>fahr</code>, <code>zeug</code>, <code>brief</code>). Always use language-specific analyzers for user-facing text in that language.</p>
+
+        <p><strong>Testing analyzers</strong>: always test before indexing data:</p>
+        <pre><code>GET /my-index/_analyze
+{
+  "analyzer": "english",
+  "text": "The running foxes are quickly jumping"
+}
+# Returns: [run, fox, quick, jump]</code></pre>
+
+        <p><strong>The search-as-you-type field type</strong>: Elasticsearch's built-in solution for prefix matching. Creates sub-fields with <code>edge_ngram</code> indexing automatically. Simpler than a custom analyzer for basic autocomplete.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 4: ELASTICSEARCH IN PRACTICE -->
+    <div class="section" data-id="elasticsearch-practice">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">⚡</span><h2>Elasticsearch in Practice</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><strong>Index design</strong>: an index is Elasticsearch's equivalent of a database table. Key decisions:</p>
+        <ul>
+          <li><strong>Shards</strong>: an index is split into N primary shards (default 1 since ES 7). Each shard is a Lucene index. More shards = more parallelism for queries and indexing, but more overhead. Rule of thumb: shards of 10–50GB. Over-sharding is a common mistake.</li>
+          <li><strong>Replicas</strong>: copies of each shard for fault tolerance and read throughput. <code>number_of_replicas: 1</code> = 2 copies total. All shards (primary + replica) are involved in search queries.</li>
+          <li><strong>Mappings</strong>: define field types explicitly. Dynamic mapping (auto-detection) is dangerous in production — Elasticsearch might infer a field as <code>long</code> when you need <code>keyword</code>, or index a JSON blob and create hundreds of unintended fields ("mapping explosion"). Always define explicit mappings.</li>
+        </ul>
+
+        <p><strong>Field types</strong>:</p>
+        <ul>
+          <li><code>text</code>: analyzed, full-text searchable, not usable for exact match, sort, or aggregations</li>
+          <li><code>keyword</code>: not analyzed, exact match and aggregations. Use for: IDs, status fields, tags, email addresses, URLs.</li>
+          <li><code>integer</code>/<code>long</code>/<code>float</code>/<code>double</code>: numeric</li>
+          <li><code>date</code>: ISO 8601 or custom format, supports range queries</li>
+          <li><code>boolean</code></li>
+          <li><code>nested</code>: array of objects where each object should be independently searchable (avoids the "object flattening" problem)</li>
+          <li><code>dense_vector</code>: for vector/semantic search (kNN)</li>
+        </ul>
+
+        <p><strong>A realistic mapping</strong>:</p>
+        <pre><code>{
+  "mappings": {
+    "properties": {
+      "title": {
+        "type": "text",
+        "analyzer": "english",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "body": { "type": "text", "analyzer": "english" },
+      "author_id": { "type": "keyword" },
+      "tags": { "type": "keyword" },
+      "published_at": { "type": "date" },
+      "view_count": { "type": "integer" }
+    }
+  }
+}</code></pre>
+
+        <p><strong>Query DSL essentials</strong>:</p>
+        <pre><code>// Full-text search across fields
+{ "multi_match": { "query": "kafka streams", "fields": ["title^2", "body"] } }
+
+// Exact match (keyword field)
+{ "term": { "status": "published" } }
+
+// Multiple exact matches
+{ "terms": { "tags": ["kafka", "streaming"] } }
+
+// Range
+{ "range": { "published_at": { "gte": "2024-01-01", "lt": "2025-01-01" } } }
+
+// Boolean combination
+{
+  "bool": {
+    "must": [{ "match": { "body": "kafka" } }],
+    "filter": [{ "term": { "status": "published" } }],
+    "should": [{ "term": { "tags": "featured" } }],
+    "must_not": [{ "term": { "is_deleted": true } }]
+  }
+}</code></pre>
+
+        <p><code>filter</code> clauses don't affect scoring and are cached — always use <code>filter</code> for non-relevance conditions (status, date range, user_id). <code>must</code> clauses affect scoring — use for text search. This is the most important query optimization pattern.</p>
+
+        <p><strong>Aggregations</strong>: Elasticsearch's analytics capability. Run alongside search queries.</p>
+        <pre><code>{
+  "query": { "match": { "body": "kubernetes" } },
+  "aggs": {
+    "by_tag": { "terms": { "field": "tags", "size": 10 } },
+    "over_time": {
+      "date_histogram": {
+        "field": "published_at",
+        "calendar_interval": "month"
+      }
+    }
+  }
+}</code></pre>
+
+        <p><strong>Indexing performance</strong>:</p>
+        <ul>
+          <li>Bulk API: never index one document at a time. Use <code>_bulk</code> API — batch 1000–5000 documents per request.</li>
+          <li>Disable refresh during bulk load: <code>PUT /index/_settings {"index.refresh_interval": "-1"}</code>. Re-enable after.</li>
+          <li>Increase <code>index.number_of_replicas</code> to 0 during initial load, restore after.</li>
+          <li><code>_source</code> storage: Elasticsearch stores the original JSON (<code>_source</code>) for every document. Required for returning results, but doubles storage. Can be disabled if you only need to retrieve from another store.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- SECTION 5: SEARCH PATTERNS -->
+    <div class="section" data-id="search-patterns">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🗺️</span><h2>Search Patterns</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><strong>Autocomplete / prefix search</strong>: show suggestions as the user types. Two approaches:</p>
+        <ol>
+          <li><strong>Edge n-gram</strong>: index <code>"kafka"</code> as <code>["ka", "kaf", "kafk", "kafka"]</code> at index time. At query time, search for the exact typed prefix. Fast at query time, large index size. Best for: predictable prefixes, single-field autocomplete.</li>
+          <li><strong>Completion suggester</strong>: Elasticsearch's built-in autocomplete field type. Stores an FST (finite state transducer) in memory for very fast prefix lookups. Returns documents sorted by weight. Doesn't support BM25 scoring or filters well. Best for: simple autocomplete with explicit weights (e.g., search by popularity).</li>
+        </ol>
+
+        <pre><code>// Completion suggester query
+{
+  "suggest": {
+    "title-suggest": {
+      "prefix": "kaf",
+      "completion": {
+        "field": "title.suggest",
+        "size": 5,
+        "contexts": {
+          "status": ["published"]
+        }
+      }
+    }
+  }
+}</code></pre>
+
+        <p><strong>Faceted search / aggregations</strong>: the filtering sidebar on e-commerce sites ("Brand: Nike (142), Adidas (89)"). The count next to each facet is an aggregation on the filtered result set. Key pattern: use <code>post_filter</code> to filter search results WITHOUT affecting aggregations (so facet counts show what's available if you change the filter, not just what matches the current filter).</p>
+
+        <pre><code>{
+  "query": { "match_all": {} },
+  "post_filter": { "term": { "brand": "Nike" } },
+  "aggs": {
+    "all_brands": { "terms": { "field": "brand", "size": 20 } },
+    "price_ranges": {
+      "range": {
+        "field": "price",
+        "ranges": [{"to": 50}, {"from": 50, "to": 100}, {"from": 100}]
+      }
+    }
+  }
+}</code></pre>
+
+        <p><strong>Geo search</strong>: search within a radius of a point, sort by distance, filter by bounding box.</p>
+        <pre><code>// All restaurants within 5km of a point
+{
+  "query": {
+    "bool": {
+      "filter": {
+        "geo_distance": {
+          "distance": "5km",
+          "location": { "lat": 40.7128, "lon": -74.0060 }
+        }
+      }
+    }
+  },
+  "sort": [
+    { "_geo_distance": { "location": { "lat": 40.7128, "lon": -74.0060 }, "order": "asc" } }
+  ]
+}</code></pre>
+
+        <p>Field type must be <code>geo_point</code>. Elasticsearch uses BKD trees (space-filling curves) for efficient geo queries.</p>
+
+        <p><strong>Fuzzy search / typo tolerance</strong>: match "elasticserach" when the user meant "elasticsearch". Elasticsearch supports <code>fuzziness: "AUTO"</code> which allows 1 edit (insert/delete/substitute/transpose) for strings 3–5 chars, 2 edits for 6+ chars.</p>
+        <pre><code>{ "match": { "title": { "query": "elasticserach", "fuzziness": "AUTO" } } }</code></pre>
+
+        <p>Fuzzy matching is expensive — it generates many candidate terms. Use on specific fields (title, name), not large text bodies.</p>
+
+        <p><strong>Highlighting</strong>: return snippets showing where the query terms matched, with terms highlighted. Used to show "why" a result matched.</p>
+        <pre><code>{
+  "query": { "match": { "body": "kafka streams" } },
+  "highlight": {
+    "fields": {
+      "body": { "fragment_size": 150, "number_of_fragments": 3 }
+    }
+  }
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- SECTION 6: WHEN TO USE SEARCH -->
+    <div class="section" data-id="when-to-use-search">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🧭</span><h2>When to Use Search</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><strong>Database LIKE vs full-text search</strong>:</p>
+        <table>
+          <thead>
+            <tr><th>Scenario</th><th>Use</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>WHERE name = 'Alice'</code></td><td>Database (exact, indexed)</td></tr>
+            <tr><td><code>WHERE status IN ('active', 'pending')</code></td><td>Database (exact, indexed)</td></tr>
+            <tr><td><code>WHERE title LIKE 'kafka%'</code> (prefix only)</td><td>Database (B-tree covers this)</td></tr>
+            <tr><td><code>WHERE body LIKE '%kafka%'</code></td><td>Full-text search</td></tr>
+            <tr><td>"Find articles about Kafka and streaming"</td><td>Full-text search</td></tr>
+            <tr><td>Ranked results by relevance</td><td>Full-text search</td></tr>
+            <tr><td>Autocomplete from millions of values</td><td>Full-text search or Redis sorted sets</td></tr>
+            <tr><td>Faceted filters with counts</td><td>Full-text search (aggregations)</td></tr>
+          </tbody>
+        </table>
+
+        <p><strong>PostgreSQL full-text search</strong>: built-in, no extra infrastructure. <code>tsvector</code> and <code>tsquery</code> types, <code>GIN</code> index on the vector. Good for: moderate data (&lt; 10M rows), basic relevance, single-language, tight PostgreSQL integration. Limitations: no distributed scale, limited relevance tuning, no geo search, no aggregations. Start here if your search needs are simple.</p>
+
+        <pre><code>-- PostgreSQL full-text search
+ALTER TABLE articles ADD COLUMN search_vector tsvector;
+UPDATE articles SET search_vector = to_tsvector('english', title || ' ' || body);
+CREATE INDEX ON articles USING GIN(search_vector);
+
+SELECT title, ts_rank(search_vector, query) AS rank
+FROM articles, to_tsquery('english', 'kafka &amp; streams') query
+WHERE search_vector @@ query
+ORDER BY rank DESC;</code></pre>
+
+        <p><strong>Elasticsearch operational considerations</strong>:</p>
+        <ul>
+          <li>Separate cluster from your operational database — Elasticsearch heap sizes, GC pauses, and disk I/O patterns are different from OLTP workloads.</li>
+          <li>Heap: JVM heap at 50% of RAM, max 32GB (beyond 32GB, JVM loses compressed oops and memory efficiency degrades sharply).</li>
+          <li>Cluster sizing: 3 master-eligible nodes minimum for quorum. Data nodes sized by data volume and query throughput.</li>
+          <li>OpenSearch: AWS's open-source fork of Elasticsearch. API-compatible, often the choice when running on AWS.</li>
+          <li>Managed services: Elastic Cloud, OpenSearch Service (AWS), Bonsai — eliminate operational burden at a cost premium.</li>
+        </ul>
+
+        <p><strong>Vector search / semantic search</strong>: traditional keyword search fails for semantic queries ("articles about distributed systems fault tolerance" won't match documents that use different vocabulary). Vector search: embed documents and queries into high-dimensional vectors (using a model like OpenAI's embeddings or sentence-transformers), then find the nearest neighbors. Elasticsearch supports <code>dense_vector</code> + kNN search. Combine with keyword search for hybrid: keyword for exact terms, vector for semantic similarity. This is the architecture behind most modern AI-powered search features.</p>
+
+        <p><strong>The synchronization problem</strong>: your Elasticsearch index is a derived view of data that lives in your database. When data changes, you must update the index. Three patterns:</p>
+        <ol>
+          <li><strong>Synchronous dual-write</strong>: write to DB + index in same request. Simple, but Elasticsearch failure fails the whole operation, and no transaction spanning both.</li>
+          <li><strong>Async via message queue</strong>: write to DB, publish change event, consumer updates index. Eventual consistency (~seconds), more resilient.</li>
+          <li><strong>CDC (Change Data Capture)</strong>: read DB replication log, apply changes to index. Most robust, no application coupling. Use Debezium → Kafka → Elasticsearch sink connector.</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- GO DEEPER -->
+    <div class="section" style="border-style:dashed;">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
+      </div>
+      <div class="section-body">
+        <div class="resource-list">
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">Elasticsearch Reference — Getting Started</div><div class="resource-author">elastic.co/guide/en/elasticsearch/reference</div><div class="resource-desc">Read the Index documents, Search your data, and Aggregations sections. The Query DSL reference is dense but essential once you're writing real queries. The mapping types reference page is the one you'll bookmark.</div></div></div>
+          <div class="resource"><span class="resource-type book">book</span><div class="resource-content"><div class="resource-title">Elasticsearch: The Definitive Guide</div><div class="resource-author">Clinton Gormley &amp; Zachary Tong — available free at elastic.co</div><div class="resource-desc">Older (covers ES 2.x) but the conceptual chapters on inverted indexes, relevance, and distributed search are still the best written explanations available. Read parts 1 and 2 for the mental model.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Okapi BM25 — Wikipedia</div><div class="resource-author">en.wikipedia.org/wiki/Okapi_BM25</div><div class="resource-desc">The formula and parameter explanations. Short read. Understanding why BM25 improves on TF-IDF helps you reason about when and how to tune k1 and b for your dataset.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Lucene's Handling of Deleted Documents</div><div class="resource-author">blog.mikemccandless.com</div><div class="resource-desc">Michael McCandless (core Lucene committer) explains segment merging, tombstones, and why deletes are expensive. Essential background for understanding Elasticsearch's write amplification and force-merge operations.</div></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <a href="linux.html">← Linux</a>
+    <a href="../backend.html" class="center">All modules</a>
+    <a href="system-design-interviews.html">System Design Interviews →</a>
+  </div>
+</footer>
+
+<script src="../js/app.js"></script>
+<script>
+  initSections('search');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
+</script>
+</body>
+</html>

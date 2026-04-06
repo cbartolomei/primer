@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Linux &amp; the OS Layer — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="inner">
+    <a href="../backend.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 6 sections understood</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>🐧 Linux &amp; the OS Layer</h1>
+    <p class="subtitle">The runtime every backend service lives inside. Processes, file descriptors, signals, memory, and the kernel primitives that explain everything from container crashes to performance bottlenecks.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <!-- SECTION 1: PROCESSES, THREADS & THE KERNEL -->
+    <div class="section" data-id="processes-kernel">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">⚙️</span><h2>Processes, Threads &amp; the Kernel</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><strong>The kernel boundary:</strong> user space vs kernel space. Your application code runs in user space. System calls (syscalls) are the only way to cross into kernel space — to open a file, allocate memory, send a network packet, create a process. Every <code>read()</code>, <code>write()</code>, <code>malloc()</code> (via <code>brk</code>/<code>mmap</code>), <code>connect()</code> is a syscall. The CPU switches to kernel mode, executes the kernel code, returns the result to user space. This is why syscall overhead matters for high-frequency operations.</p>
+
+        <h3>Processes</h3>
+        <p>A process is a running instance of a program. Each process has: its own virtual address space (cannot see another process's memory), one or more threads, open file descriptors, a working directory, environment variables, and a PID. The kernel tracks all of this in a <code>task_struct</code> (Linux's process control block). <code>fork()</code> creates a new process by copying the parent (copy-on-write — no actual copying until writes happen). <code>exec</code> replaces the current process image with a new program.</p>
+
+        <h3>Threads</h3>
+        <p>Threads share the same virtual address space as their parent process. Creating a thread (<code>pthread_create</code>, <code>goroutine</code>, Java thread) is cheaper than <code>fork</code> — no address space copy. The kernel schedules threads, not processes. A Go program with 1000 goroutines multiplexes them onto OS threads (M:N scheduling — the Go runtime manages this). Too many OS threads (not goroutines): each thread has an 8MB default stack, consuming memory even when idle.</p>
+
+        <h3>Process States</h3>
+        <ul>
+          <li><strong>Running</strong>: actively on a CPU.</li>
+          <li><strong>Runnable</strong>: ready, waiting for a CPU slot.</li>
+          <li><strong>Sleeping (S)</strong>: waiting for I/O — interruptible, wakes on signal.</li>
+          <li><strong>Uninterruptible sleep (D)</strong>: waiting for I/O that cannot be interrupted, often disk or NFS. Shows as <code>D</code> in <code>ps</code>. A stuck D-state process usually indicates an I/O or kernel bug.</li>
+          <li><strong>Zombie (Z)</strong>: exited but parent hasn't called <code>wait()</code> — holding a PID slot.</li>
+          <li><strong>Stopped (T)</strong>: paused by <code>SIGSTOP</code>.</li>
+        </ul>
+
+        <h3>Context Switching &amp; the Scheduler</h3>
+        <p>A context switch is the OS swapping the CPU from one thread to another. It saves register state, flushes the CPU pipeline, and potentially invalidates caches. Cost: roughly 1–10µs. Under heavy load a machine can spend meaningful CPU time on switches rather than real work. <code>vmstat 1</code> shows <code>cs</code> (context switches per second). Too many OS threads → too many context switches.</p>
+        <p>Linux uses <strong>CFS</strong> (Completely Fair Scheduler). Each runnable task accumulates "virtual runtime" — tasks with less virtual runtime get priority. Nice values (−20 to +19) tilt the balance: <code>nice=-20</code> gets more CPU, <code>nice=19</code> gets less. <code>renice</code> changes a running process's nice value; <code>chrt</code> sets real-time scheduling policies.</p>
+
+        <h3>Viewing Processes</h3>
+        <p>Key columns in <code>ps aux</code>: PID, PPID (parent), %CPU, %MEM, VSZ (virtual memory size), RSS (resident set size — actual RAM in use), STAT (process state), COMMAND.</p>
+        <pre><code># All processes sorted by CPU, top 20
+ps aux --sort=-%cpu | head -20
+
+# Process tree with PIDs
+pstree -p
+
+# Show all threads of a specific process
+ps -T -p &lt;pid&gt;
+
+# How many voluntary context switches has this process had?
+cat /proc/&lt;pid&gt;/status | grep voluntary
+
+# Trace network syscalls for a running process (use carefully — overhead is real)
+strace -p &lt;pid&gt; -e trace=network
+
+# All open files and sockets for a process
+lsof -p &lt;pid&gt;</code></pre>
+      </div>
+    </div>
+
+    <!-- SECTION 2: THE /proc FILESYSTEM -->
+    <div class="section" data-id="proc-filesystem">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📁</span><h2>The /proc Filesystem</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><strong>/proc is not real files.</strong> It's a virtual filesystem — the kernel generates content on-the-fly when you read from it. Reading <code>/proc/meminfo</code> asks the kernel to serialize current memory stats into text. Writing to some files changes kernel behavior. No disk I/O involved.</p>
+
+        <h3>Per-Process Directories — <code>/proc/[pid]/</code></h3>
+        <ul>
+          <li><code>cmdline</code> — the full command line that started the process (null-separated).</li>
+          <li><code>environ</code> — environment variables (null-separated). Use <code>cat /proc/1/environ | tr '\0' '\n'</code> to read.</li>
+          <li><code>fd/</code> — symlinks to every open file descriptor. <code>ls -la /proc/&lt;pid&gt;/fd</code> shows all open files, sockets, and pipes.</li>
+          <li><code>maps</code> — virtual memory map: every mapped region, its permissions, what file backs it.</li>
+          <li><code>smaps</code> — detailed RSS per mapping. Use <code>smaps_rollup</code> for per-process totals.</li>
+          <li><code>status</code> — human-readable summary: name, state, memory, thread count, UID.</li>
+          <li><code>io</code> — I/O statistics: bytes read/written, syscall counts.</li>
+          <li><code>limits</code> — current ulimits for this process.</li>
+          <li><code>oom_score</code> — OOM killer score. Higher = more likely to be killed when memory runs out.</li>
+          <li><code>cgroup</code> — which cgroup this process belongs to. Critical for understanding container resource accounting.</li>
+        </ul>
+
+        <h3>System-Wide Files</h3>
+        <ul>
+          <li><code>/proc/meminfo</code> — total/free/available RAM, swap, buffer/cache breakdown.</li>
+          <li><code>/proc/cpuinfo</code> — CPU model, core count, flags. Look for <code>vmx</code>/<code>svm</code> for virtualization support.</li>
+          <li><code>/proc/loadavg</code> — load averages (1m, 5m, 15m) + running/total processes + last PID.</li>
+          <li><code>/proc/net/dev</code> — network interface stats: bytes and packets sent/received.</li>
+          <li><code>/proc/sys/</code> — tunable kernel parameters, the same tree exposed by <code>sysctl</code>.</li>
+          <li><code>/proc/diskstats</code> — disk I/O counters.</li>
+          <li><code>/proc/interrupts</code> — hardware interrupt counts per CPU.</li>
+        </ul>
+
+        <h3>Debugging Patterns</h3>
+        <pre><code># What is this process doing right now?
+cat /proc/&lt;pid&gt;/status
+
+# What files and sockets does it have open?
+ls -la /proc/&lt;pid&gt;/fd
+
+# Is this process in a container? What cgroup limits apply?
+cat /proc/&lt;pid&gt;/cgroup
+cat /proc/&lt;pid&gt;/limits
+
+# Where is memory growing? Find the biggest heap mapping
+cat /proc/&lt;pid&gt;/smaps | grep -A10 "heap"
+
+# List all active kernel parameters matching a pattern
+sysctl -a | grep net.core
+
+# Read a specific parameter
+sysctl net.ipv4.tcp_max_syn_backlog
+
+# Tune a parameter at runtime (lost on reboot without /etc/sysctl.conf)
+sysctl -w net.core.somaxconn=65535</code></pre>
+
+        <h3>Container Relevance</h3>
+        <p>Inside a container, <code>/proc</code> still reflects the host for some data. <code>/proc/cpuinfo</code> reports host CPU count — not the container's CPU quota. This is why a JVM in a container with a 1-CPU limit might spin up 32 threads: it read <code>/proc/cpuinfo</code>, saw 32 cores, and sized the thread pool accordingly. The fix: JVM flag <code>-XX:+UseContainerSupport</code> (Java 10+) reads cgroup limits instead of raw <code>/proc/cpuinfo</code>.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 3: FILE DESCRIPTORS & I/O -->
+    <div class="section" data-id="file-descriptors">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📄</span><h2>File Descriptors &amp; I/O</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><strong>Everything is a file</strong> — the defining Unix abstraction. Files, directories, sockets, pipes, devices, terminals — all accessed via file descriptors. Your program doesn't need to know whether fd 5 is a disk file or a network socket: <code>read()</code> and <code>write()</code> work either way. This is why <code>cat file | gzip | ssh server 'cat &gt; file.gz'</code> works — stdin, stdout, and pipes all share the same interface.</p>
+
+        <h3>The File Descriptor Table</h3>
+        <p>Each process has a table (array) of open file descriptors. Entries 0, 1, 2 are pre-opened: stdin (0), stdout (1), stderr (2). When you call <code>open()</code>, the kernel returns the lowest available integer ≥ 0. The descriptor is just an index into this table. The table entry points to a kernel file description — shared between fds that refer to the same open file, which matters for <code>dup2</code> and <code>fork</code>.</p>
+
+        <h3>File Descriptor Limits</h3>
+        <p>Two tiers: the <strong>soft limit</strong> (<code>ulimit -n</code>) is the current cap, raiseable up to the hard limit. The <strong>hard limit</strong> is the ceiling — only root can raise it. The system-wide ceiling lives at <code>/proc/sys/fs/file-max</code>. The default soft limit of 1024 is absurdly low for servers. Most production boxes set it to 65536 or higher.</p>
+        <pre><code># Check the limit for your current shell
+ulimit -n
+
+# Raise for this session
+ulimit -n 65536
+
+# Set permanently in /etc/security/limits.conf
+echo "* soft nofile 65536" >> /etc/security/limits.conf
+echo "* hard nofile 65536" >> /etc/security/limits.conf
+
+# Check limits of an already-running process
+cat /proc/&lt;pid&gt;/limits | grep "open files"
+
+# Count open fds for a process
+ls /proc/&lt;pid&gt;/fd | wc -l
+
+# Find processes with the most open fds (fd leak investigation)
+for pid in /proc/[0-9]*/fd; do echo "$(ls $pid | wc -l) $pid"; done | sort -rn | head -20</code></pre>
+
+        <h3>What "Too Many Open Files" Actually Means</h3>
+        <p>When a process hits its fd limit, any syscall that allocates a new fd — <code>open</code>, <code>accept</code>, <code>socket</code>, <code>pipe</code> — returns <code>EMFILE</code>. In Go: <code>accept: too many open files</code>. In Java: <code>java.io.IOException: Too many open files</code>. Common causes: an fd leak (not closing connections or files after use), a high-traffic server legitimately needing more fds, or the default limit never being raised in the first place.</p>
+
+        <h3>Pipes</h3>
+        <p>A pipe is a kernel buffer (64KB by default on Linux) with two fds — a read end and a write end. When the buffer fills, the writer blocks. When it empties, the reader blocks. This is the backpressure mechanism that makes <code>cmd1 | cmd2</code> work without buffering all of cmd1's output in memory.</p>
+
+        <h3>Blocking vs Non-Blocking I/O &amp; epoll</h3>
+        <p><strong>Blocking I/O:</strong> <code>read()</code> waits until data is available. The thread suspends; the kernel wakes it when data arrives. Simple, but one thread per connection doesn't scale to thousands of connections.</p>
+        <p><strong>Non-blocking I/O</strong> (<code>O_NONBLOCK</code>): <code>read()</code> returns <code>EAGAIN</code> immediately if no data is ready. The thread must try again later — typically via <code>epoll</code>.</p>
+        <p><strong>epoll</strong> is the Linux mechanism for monitoring many fds simultaneously. <code>epoll_wait</code> blocks until any of the registered fds become readable or writable. One thread can handle thousands of connections. This is the foundation of Node.js (single-threaded event loop), Nginx, Go's <code>netpoll</code>, and every high-performance network server.</p>
+        <p><strong>O_CLOEXEC:</strong> close-on-exec flag. Without it, fds are inherited by children created via <code>fork</code>+<code>exec</code> — an fd leak into child processes. Modern languages and runtimes set this automatically for sockets.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 4: SIGNALS & PROCESS CONTROL -->
+    <div class="section" data-id="signals">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📡</span><h2>Signals &amp; Process Control</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Signals are asynchronous notifications sent to a process by the kernel or another process. The process can handle the signal (run a handler function), ignore it, or let the kernel apply the default action (often termination). Signals interrupt whatever the process is currently doing — even <code>sleep()</code>.</p>
+
+        <h3>Key Signals Every Backend Engineer Needs</h3>
+        <ul>
+          <li><strong>SIGTERM (15)</strong> — graceful shutdown request. The default signal sent by <code>kill</code>. Your process <em>should</em> handle this: finish in-flight requests, close connections, flush buffers, then exit cleanly. If you don't handle it, the kernel terminates immediately with no cleanup.</li>
+          <li><strong>SIGKILL (9)</strong> — immediate termination. Cannot be caught, ignored, or blocked. The kernel kills the process instantly — no handler runs, no cleanup happens. Use only when SIGTERM fails after a timeout. <code>kill -9</code> is a last resort.</li>
+          <li><strong>SIGINT (2)</strong> — interrupt from keyboard (Ctrl+C). Default: terminate. Commonly handled to trigger graceful shutdown in CLI tools and servers.</li>
+          <li><strong>SIGHUP (1)</strong> — originally for terminal disconnect. Conventionally repurposed: send to a daemon to reload its configuration without restarting. Nginx: <code>kill -HUP $(cat /run/nginx.pid)</code> reloads config with zero downtime.</li>
+          <li><strong>SIGCHLD</strong> — sent to parent when a child process changes state (exits or is stopped). Parent should call <code>waitpid()</code> to collect the exit status; otherwise the child becomes a zombie.</li>
+          <li><strong>SIGUSR1 / SIGUSR2</strong> — user-defined, no built-in meaning. Used for: rotating log files, dumping goroutine stack traces, triggering stats output.</li>
+          <li><strong>SIGPIPE</strong> — sent when writing to a pipe or socket with no reader. Default action is termination. Servers almost always ignore this and handle the <code>EPIPE</code> error from <code>write()</code> instead.</li>
+          <li><strong>SIGQUIT (3)</strong> — like SIGTERM but also dumps a core file. Go handles this specially: it prints all goroutine stacks to stderr, which is extremely useful for debugging stuck programs.</li>
+        </ul>
+
+        <h3>Graceful Shutdown in Practice</h3>
+        <pre><code>// Go: handle SIGTERM and SIGINT for graceful HTTP server shutdown
+srv := &amp;http.Server{Addr: ":8080", Handler: handler}
+
+go func() {
+    if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+        log.Fatal(err)
+    }
+}()
+
+quit := make(chan os.Signal, 1)
+signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+&lt;-quit
+
+// Give in-flight requests 30s to complete
+ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+defer cancel()
+if err := srv.Shutdown(ctx); err != nil {
+    log.Fatal("Shutdown forced:", err)
+}</code></pre>
+
+        <h3>Kubernetes and Signals</h3>
+        <p>When Kubernetes terminates a pod, it sends <code>SIGTERM</code> to PID 1 in the container. After <code>terminationGracePeriodSeconds</code> (default 30s), if the container is still running, it sends <code>SIGKILL</code>.</p>
+        <p>Critical: PID 1 in a container must forward signals to child processes. If your Dockerfile says <code>CMD ["node", "app.js"]</code>, Node is PID 1 and receives SIGTERM correctly. If it says <code>CMD ["sh", "-c", "node app.js"]</code>, <code>sh</code> is PID 1 and may silently swallow SIGTERM without forwarding it to Node. Fix: use <code>exec</code> in shell scripts to replace the shell process (<code>exec node app.js</code>), or use <code>tini</code> as a proper init process that handles signal forwarding and zombie reaping.</p>
+
+        <h3>Sending Signals</h3>
+        <pre><code>kill -TERM &lt;pid&gt;        # graceful shutdown (same as kill &lt;pid&gt;)
+kill -HUP &lt;pid&gt;         # reload configuration
+kill -USR1 &lt;pid&gt;        # app-defined (often log rotation)
+pkill -TERM nginx       # send signal by process name
+killall node            # kill all processes named node
+kill -0 &lt;pid&gt;           # test if process exists — no signal actually sent</code></pre>
+      </div>
+    </div>
+
+    <!-- SECTION 5: MEMORY MANAGEMENT -->
+    <div class="section" data-id="memory-management">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🧠</span><h2>Memory Management</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Every process sees its own large flat <strong>virtual address space</strong> (on 64-bit x86: up to 128TB). None of it is real until used. The kernel maps virtual pages to physical RAM pages on demand via the page table. A process can have 10GB of virtual address space mapped but only 100MB of actual RAM resident.</p>
+
+        <h3>RSS vs VSZ</h3>
+        <ul>
+          <li><strong>VSZ (Virtual Size):</strong> total virtual address space mapped. Mostly meaningless for understanding real memory usage. A process can map 1GB but touch only 10MB — VSZ is 1GB, RSS is 10MB.</li>
+          <li><strong>RSS (Resident Set Size):</strong> physical RAM currently in use by this process. The number you actually care about. Shown in KB by <code>ps aux</code>.</li>
+          <li><strong>Shared memory:</strong> if 20 processes each load the same shared library, RSS double-counts it. <code>pmap -x &lt;pid&gt;</code> and <code>/proc/&lt;pid&gt;/smaps</code> distinguish private vs shared pages.</li>
+        </ul>
+
+        <h3>Memory Allocation</h3>
+        <p><strong>Small allocations:</strong> the C library <code>malloc</code> manages a heap (growing via the <code>brk</code> syscall). Go has its own allocator. Returning memory to the OS is not guaranteed — allocators often keep freed memory for internal reuse, so RSS may not drop immediately after <code>free()</code>.</p>
+        <p><strong>Large allocations:</strong> <code>mmap(MAP_ANONYMOUS)</code> maps a new region of virtual memory. The kernel doesn't allocate physical RAM until pages are actually written (demand paging). Freeing with <code>munmap</code> immediately returns pages to the OS.</p>
+        <p><strong>Memory-mapped files:</strong> <code>mmap()</code> a file — its pages are mapped into virtual address space. Reads trigger page faults that load from disk. Writes dirty the page, eventually flushed by the kernel. Databases use this heavily; the kernel manages caching transparently.</p>
+
+        <h3>Page Faults</h3>
+        <p>When a process accesses a virtual page with no physical RAM backing yet, the CPU raises a page fault. The kernel handles it: allocates a physical page, zeroes it, updates the page table, returns to the process. This is normal and fast (microseconds). A <strong>hard page fault</strong> requires loading from disk (swap) — much slower, typically milliseconds.</p>
+
+        <h3>The OOM Killer</h3>
+        <p>When the kernel runs out of memory and swap, it must kill a process to free RAM. It selects based on <code>oom_score</code> (visible in <code>/proc/&lt;pid&gt;/oom_score</code>) — roughly proportional to memory usage. In containers, you'll see <code>OOMKilled: true</code> in <code>kubectl describe pod</code> when the container exceeded its cgroup memory limit. Adjust <code>/proc/&lt;pid&gt;/oom_score_adj</code> to protect critical processes: −1000 means never kill this process, +1000 means kill it first.</p>
+
+        <h3>Swap</h3>
+        <p>When RAM is full, the kernel can move least-recently-used pages to disk (a swap partition or swap file). Swapping is catastrophically slow for server workloads — a database that starts swapping will appear to hang. Production practice: either no swap (typical in containers) or enough swap to prevent OOM kills, with the expectation that a swapping process should be restarted. <code>vm.swappiness</code> (0–100) controls aggressiveness; many production setups use <code>vm.swappiness=1</code>.</p>
+
+        <h3>Memory Debugging</h3>
+        <pre><code># Overall memory picture
+free -h
+cat /proc/meminfo
+
+# Per-process RSS, sorted descending
+ps aux --sort=-%mem | head -20
+
+# Detailed virtual mappings with RSS per region
+pmap -x &lt;pid&gt; | sort -k3 -rn | head -20
+
+# Is this machine swapping? (watch si/so columns)
+vmstat 1
+
+# How much RAM is in buffer/page cache vs actually free?
+cat /proc/meminfo | grep -E "Buffers|Cached|Available"</code></pre>
+
+        <h3>Go Memory Notes</h3>
+        <p>Go's garbage collector returns memory to the OS on its own schedule. <code>GOGC</code> controls GC frequency (default 100 = run GC when the heap doubles). <code>GOMEMLIMIT</code> (Go 1.19+) sets a soft memory limit — the GC runs more aggressively before hitting it. <code>runtime.ReadMemStats</code> gives detailed heap stats; <code>pprof</code> heap profiles show allocation hot spots.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 6: ulimits, TUNING & OBSERVABILITY -->
+    <div class="section" data-id="performance-limits">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📊</span><h2>ulimits, Tuning &amp; Observability</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><strong>ulimits</strong> are per-process resource limits enforced by the kernel. Soft limits are the current cap (a process can raise its own soft limit up to the hard limit). Hard limits are the ceiling — only root can raise them. Set in <code>/etc/security/limits.conf</code> or <code>/etc/security/limits.d/</code>, inherited by child processes, visible in <code>/proc/&lt;pid&gt;/limits</code>.</p>
+
+        <h3>Key Limits</h3>
+        <pre><code>nofile    — open file descriptors  (default 1024, raise to 65536+)
+nproc     — max processes/threads  (relevant for thread-heavy apps)
+stack     — thread stack size      (default 8MB — 1000 threads = 8GB VSZ)
+memlock   — memory lockable in RAM (relevant for databases like Redis)
+core      — core dump size         (unlimited for debugging, 0 in prod)</code></pre>
+
+        <pre><code># View all current limits for this shell
+ulimit -a
+
+# Raise for current session
+ulimit -n 65536
+
+# Set per-container in Docker
+docker run --ulimit nofile=65536:65536 myapp</code></pre>
+
+        <h3>Key Kernel Parameters</h3>
+        <p>Tunable via <code>sysctl -w</code> at runtime or persistently in <code>/etc/sysctl.conf</code>:</p>
+        <ul>
+          <li><strong>net.core.somaxconn</strong> — max connections waiting in the accept queue per socket. Default 128 — far too low for a busy server. Set to 65535.</li>
+          <li><strong>net.ipv4.tcp_max_syn_backlog</strong> — max half-open connections during the TCP handshake. Raise for high-traffic servers.</li>
+          <li><strong>net.ipv4.ip_local_port_range</strong> — ephemeral port range. Default <code>32768 60999</code> ≈ 28K ports. Under high outbound connection churn you can exhaust this. Widen to <code>1024 65535</code>.</li>
+          <li><strong>net.ipv4.tcp_tw_reuse</strong> — allow reuse of TIME_WAIT sockets for new connections. Set to 1 to increase ephemeral port availability.</li>
+          <li><strong>vm.overcommit_memory</strong> — how the kernel handles allocation requests. 0 = heuristic, 1 = always allow (Redis recommends this to avoid <code>fork()</code> failures under copy-on-write), 2 = strict.</li>
+          <li><strong>fs.inotify.max_user_watches</strong> — max file watches per user. Default 8192. Raise to 524288 on Kubernetes nodes or systems watching many files.</li>
+        </ul>
+
+        <h3>Observability Tools</h3>
+        <pre><code># CPU: who's using it?
+top                                 # interactive, per-process
+htop                                # nicer interactive view
+mpstat -P ALL 1                     # per-CPU utilization, updated every second
+perf top                            # kernel-level hot functions (requires perf installed)
+
+# Memory
+free -h                             # overall usage
+vmstat 1                            # si/so = swap in/out, bi/bo = block I/O
+cat /proc/meminfo                   # detailed breakdown
+
+# Disk I/O
+iostat -xz 1                        # per-device: r/s, w/s, await (ms latency), %util
+iotop                               # per-process I/O (like top for disk)
+# %util near 100% = disk saturated; rising await = latency building up
+
+# Network connections
+ss -tulpn                           # listening ports with owning PIDs
+ss -s                               # connection state summary (TIME_WAIT count, etc.)
+netstat -an | awk '{print $6}' | sort | uniq -c | sort -rn   # TCP state histogram
+
+# All of the above in one view
+dstat 1                             # CPU + disk + net + memory, every second
+
+# What is a process actually doing at the syscall level?
+strace -p &lt;pid&gt; -c                 # summary: syscall counts and time spent</code></pre>
+
+        <h3>Load Average</h3>
+        <p>The three numbers in <code>uptime</code> and <code>/proc/loadavg</code> represent the average number of runnable + uninterruptible-sleep threads over 1m/5m/15m. On a 4-core machine: load 4.0 means all CPUs fully busy; load 8.0 means 4 busy + 4 waiting. When load spikes, identify the cause: high CPU (<code>mpstat</code> shows <code>%usr</code> high) or high I/O (<code>%iowait</code> high in <code>mpstat</code>, <code>await</code> high in <code>iostat</code>).</p>
+
+        <h3>dmesg — The Kernel Ring Buffer</h3>
+        <p>The first place to look for: OOM kills (<code>Out of memory: Kill process</code>), disk errors (<code>blk_update_request: I/O error</code>), network issues, and hardware faults. <code>dmesg -T</code> adds human-readable timestamps. <code>dmesg -l err,crit,alert,emerg</code> filters to errors only.</p>
+
+        <!-- GO DEEPER -->
+        <div class="go-deeper" style="margin-top:2rem;">
+          <h3>Go Deeper</h3>
+          <div class="resource-list">
+            <div class="resource"><span class="resource-type book">book</span><div class="resource-content"><div class="resource-title">Systems Performance — Brendan Gregg</div><div class="resource-author">brendangregg.com/systems-performance-2nd-edition-book.html</div><div class="resource-desc">The definitive reference for Linux performance analysis. Every tool, every metric, every methodology. Gregg also publishes free USE Method and Linux Performance checklists on his website — worth bookmarking before you ever need them.</div></div></div>
+            <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">Linux Man Pages — man 2, man 7, man 5</div><div class="resource-author">man7.org/linux/man-pages</div><div class="resource-desc">Everything you need is in the man pages. <code>man 2 open</code> for syscalls, <code>man 7 signal</code> for signal semantics, <code>man 5 proc</code> for the /proc filesystem. Read the page for any syscall you're debugging — the ERRORS section alone saves hours.</div></div></div>
+            <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Brendan Gregg's Blog — Linux Observability</div><div class="resource-author">brendangregg.com</div><div class="resource-desc">Flame graphs, BPF tools, perf, and tracing walkthroughs for real production problems. The Linux Performance page is a comprehensive starting checklist. Essential reading if you ever need to diagnose something beyond what top and iostat reveal.</div></div></div>
+            <div class="resource"><span class="resource-type tool">tool</span><div class="resource-content"><div class="resource-title">bpftrace — Dynamic Linux Tracing</div><div class="resource-author">github.com/iovisor/bpftrace</div><div class="resource-desc">Modern Linux tracing without modifying code. Write one-liners that observe kernel events, trace specific syscalls, or sample CPU stacks — all dynamically on a running production system. Start with the bpftrace one-liners reference on Gregg's site.</div></div></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <a href="data-processing.html">← Data Processing</a>
+    <a href="../backend.html" class="center">All modules</a>
+    <a href="search.html">Search →</a>
+  </div>
+</footer>
+
+<script src="../js/app.js"></script>
+<script>
+  initSections('linux');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
+</script>
+</body>
+</html>
