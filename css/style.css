@@ -127,6 +127,20 @@ a.site-logo:hover { opacity: 0.7; text-decoration: none; }
 }
 .header-back:hover { color: var(--text); text-decoration: none; }
 
+.header-library {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+  text-decoration: none;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+.header-library:hover { color: var(--text); text-decoration: none; }
+
 /* ── Progress bar ──────────────────────────────────────────── */
 .progress-bar-wrap {
   height: 3px;
@@ -515,7 +529,8 @@ details.qa .qa-body ul { margin-bottom: 0; }
   margin-top: 0.1rem;
   flex-shrink: 0;
 }
-.resource-type.book  { background: rgba(124, 99, 245, 0.2); color: #a898ff; }
+.resource-type.book    { background: rgba(124, 99, 245, 0.2); color: #a898ff; }
+.resource-type.library { background: rgba(20, 184, 166, 0.15); color: #2dd4bf; }
 .resource-type.blog  { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
 .resource-type.docs  { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
 .resource-type.video { background: rgba(239, 68, 68, 0.15); color: #f87171; }

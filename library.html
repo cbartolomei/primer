@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reference Library — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    /* ── Book section ────────────────────────────────────────── */
+    .book-section { margin-bottom: 3.5rem; }
+
+    .book-header { margin-bottom: 1.25rem; }
+
+    .book-title {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #e8e4ff;
+      margin: 0 0 0.2rem;
+    }
+
+    .book-byline {
+      font-size: 0.78rem;
+      color: #5c6370;
+      margin-bottom: 0.4rem;
+    }
+
+    .book-source-link {
+      font-size: 0.75rem;
+      color: #7a8299;
+      text-decoration: none;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      transition: color 0.15s;
+    }
+    .book-source-link:hover { color: #a78bfa; border-bottom-color: rgba(167,139,250,0.4); }
+
+    .book-desc {
+      margin-top: 0.6rem;
+      font-size: 0.85rem;
+      color: #7a8299;
+      line-height: 1.65;
+      max-width: 680px;
+    }
+
+    /* ── Progress row ────────────────────────────────────────── */
+    .book-progress-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-top: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .book-progress-bar-wrap {
+      flex: 1;
+      max-width: 220px;
+      height: 3px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .book-progress-bar {
+      height: 100%;
+      background: #2dd4bf;
+      border-radius: 2px;
+      transition: width 0.4s;
+    }
+
+    .book-progress-label {
+      font-size: 0.72rem;
+      color: #5c6370;
+      white-space: nowrap;
+    }
+
+    /* ── Chapter list ────────────────────────────────────────── */
+    .chapter-list {
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .chapter-item {
+      display: grid;
+      grid-template-columns: 3.25rem 1fr auto;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.65rem 1rem;
+      text-decoration: none;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      background: rgba(255,255,255,0.01);
+      transition: background 0.15s;
+      min-width: 0;
+    }
+    .chapter-item:last-child { border-bottom: none; }
+
+    .chapter-item.available:hover { background: rgba(124,99,245,0.07); }
+
+    .chapter-item.locked {
+      opacity: 0.4;
+      cursor: default;
+    }
+
+    .chapter-num {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: #5c6370;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .chapter-info { min-width: 0; }
+
+    .chapter-title {
+      font-size: 0.86rem;
+      font-weight: 600;
+      color: #c0c8d8;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chapter-item.available:hover .chapter-title { color: #e8e4ff; }
+
+    .chapter-desc {
+      font-size: 0.74rem;
+      color: #5c6370;
+      line-height: 1.35;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .chapter-status {
+      font-size: 0.7rem;
+      white-space: nowrap;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .chapter-status.read {
+      color: #2dd4bf;
+      font-weight: 600;
+    }
+
+    .chapter-status.arrow {
+      color: #3d4155;
+      font-size: 0.75rem;
+      transition: color 0.15s, transform 0.15s;
+    }
+    .chapter-item.available:hover .chapter-status.arrow {
+      color: #7c63f5;
+      transform: translateX(2px);
+    }
+
+    /* ── Divider ─────────────────────────────────────────────── */
+    .library-divider {
+      border: none;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      margin: 2.5rem 0;
+    }
+
+    /* ── Single-doc card (Effective Go, etc.) ────────────────── */
+    .single-doc-card {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+      padding: 0.9rem 1.1rem;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 10px;
+      text-decoration: none;
+      background: rgba(255,255,255,0.015);
+      transition: background 0.15s, border-color 0.15s;
+      max-width: 460px;
+    }
+    .single-doc-card:hover {
+      background: rgba(124,99,245,0.07);
+      border-color: rgba(124,99,245,0.25);
+    }
+    .single-doc-icon { font-size: 1.6rem; line-height: 1; flex-shrink: 0; }
+    .single-doc-info { flex: 1; min-width: 0; }
+    .single-doc-title { font-size: 0.9rem; font-weight: 600; color: #c0c8d8; margin-bottom: 0.15rem; }
+    .single-doc-card:hover .single-doc-title { color: #e8e4ff; }
+    .single-doc-meta { font-size: 0.74rem; color: #5c6370; }
+    .single-doc-arrow { font-size: 0.75rem; color: #3d4155; flex-shrink: 0; transition: color 0.15s, transform 0.15s; }
+    .single-doc-card:hover .single-doc-arrow { color: #7c63f5; transform: translateX(2px); }
+  </style>
+</head>
+<body>
+<header class="site-header">
+  <div class="inner">
+    <a href="index.html" class="header-back">← Home</a>
+    <a href="index.html" class="site-logo">pri<span>m</span>er</a>
+    <a href="library.html" class="header-library" style="color:#a78bfa;">📚 Library</a>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>📚 Reference Library</h1>
+    <p class="subtitle">Primary sources — the books and documentation the curriculum is built on. Read chapter by chapter, or dip in while studying a topic.</p>
+  </div>
+
+  <!-- ── Google SRE Book ───────────────────────────────────── -->
+  <div class="book-section">
+    <div class="book-header">
+      <h2 class="book-title">Site Reliability Engineering</h2>
+      <div class="book-byline">Beyer, Jones, Petoff, Murphy · Google, O'Reilly, 2016</div>
+      <a href="https://sre.google/sre-book/table-of-contents/" target="_blank" rel="noopener" class="book-source-link">sre.google/sre-book · Free online ↗</a>
+      <p class="book-desc">Google's definitive guide to running production systems at scale. Covers risk management, SLOs, monitoring, on-call, incident response, release engineering, and distributed systems reliability. Primary source for Primer's Observability, CI/CD, and System Design content.</p>
+    </div>
+
+    <div class="book-progress-row">
+      <div class="book-progress-bar-wrap">
+        <div class="book-progress-bar" id="sre-progress-bar" style="width:0%"></div>
+      </div>
+      <span class="book-progress-label" id="sre-progress-label">0 / 12 chapters read</span>
+    </div>
+
+    <div class="chapter-list" id="sre-chapter-list">
+      <!-- Rendered by JS below -->
+    </div>
+  </div>
+
+  <hr class="library-divider">
+
+  <!-- ── Effective Go ──────────────────────────────────────── -->
+  <div class="book-section">
+    <div class="book-header">
+      <h2 class="book-title">Effective Go</h2>
+      <div class="book-byline">The Go Authors · golang.org</div>
+      <a href="https://go.dev/doc/effective_go" target="_blank" rel="noopener" class="book-source-link">go.dev/doc/effective_go · Free online ↗</a>
+      <p class="book-desc">The official guide to writing clear, idiomatic Go. Covers naming, control structures, data, methods, interfaces, concurrency, errors, and more. Essential reading alongside the Go track.</p>
+    </div>
+    <a href="docs.html?file=effective_go" class="single-doc-card">
+      <span class="single-doc-icon">📄</span>
+      <div class="single-doc-info">
+        <div class="single-doc-title">Effective Go</div>
+        <div class="single-doc-meta">Single document · Also linked from the Go track</div>
+      </div>
+      <span class="single-doc-arrow">→</span>
+    </a>
+  </div>
+
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <span></span>
+    <a href="index.html" class="center">← Home</a>
+    <span></span>
+  </div>
+</footer>
+
+<script src="js/app.js"></script>
+<script>
+(function () {
+  const LIBRARY_KEY = 'primer:library';
+  function getReads() {
+    try { return JSON.parse(localStorage.getItem(LIBRARY_KEY) || '{}'); } catch { return {}; }
+  }
+
+  // All 34 SRE chapters — docKey present = available in Primer Library
+  const SRE_CHAPTERS = [
+    { num: 1,  title: 'Introduction', desc: 'What SRE is and how it differs from traditional ops' },
+    { num: 2,  title: 'The Production Environment at Google', desc: 'Hardware, software, and networking overview' },
+    { num: 3,  title: 'Embracing Risk', desc: 'Why 100% reliability is wrong, error budgets, aligning risk with business goals', docKey: 'sre_ch03' },
+    { num: 4,  title: 'Service Level Objectives', desc: 'SLIs, SLOs, and SLAs — how to define and use reliability targets', docKey: 'sre_ch04' },
+    { num: 5,  title: 'Eliminating Toil', desc: 'Defining toil, the 50% engineering time rule, and why automation matters', docKey: 'sre_ch05' },
+    { num: 6,  title: 'Monitoring Distributed Systems', desc: 'The four golden signals, symptom vs. cause, white-box vs. black-box', docKey: 'sre_ch06' },
+    { num: 7,  title: 'The Evolution of Automation at Google', desc: 'From no automation to fully autonomous systems' },
+    { num: 8,  title: 'Release Engineering', desc: 'Hermetic builds, continuous deployment, push on green, configuration management', docKey: 'sre_ch08' },
+    { num: 9,  title: 'Simplicity', desc: 'The virtue of boring systems and essential complexity' },
+    { num: 10, title: 'Practical Alerting', desc: 'Time-series monitoring, Borgmon/Prometheus, rule evaluation, alert design', docKey: 'sre_ch10' },
+    { num: 11, title: 'Being On-Call', desc: 'On-call mechanics, cognitive load, and escalation' },
+    { num: 12, title: 'Effective Troubleshooting', desc: 'Hypothetico-deductive method, triage, debugging strategies', docKey: 'sre_ch12' },
+    { num: 13, title: 'Emergency Response', desc: 'What to do when everything is on fire' },
+    { num: 14, title: 'Managing Incidents', desc: 'Incident command, communication, and resolution' },
+    { num: 15, title: 'Postmortem Culture', desc: 'Blameless postmortems, when to write one, review process, building culture', docKey: 'sre_ch15' },
+    { num: 16, title: 'Tracking Outages', desc: 'Outage tracking systems and escalation policies' },
+    { num: 17, title: 'Testing for Reliability', desc: 'Unit → integration → system → production tests, canary testing, zero-MTTR bugs', docKey: 'sre_ch17' },
+    { num: 18, title: 'Software Engineering in SRE', desc: 'When and how SREs write production software' },
+    { num: 19, title: 'Load Balancing at the Frontend', desc: 'DNS, anycast, and global load balancing' },
+    { num: 20, title: 'Load Balancing in the Datacenter', desc: 'Subsetting, weighted round robin, and backend health' },
+    { num: 21, title: 'Handling Overload', desc: 'Adaptive throttling, per-customer limits, criticality levels, retry budgets', docKey: 'sre_ch21' },
+    { num: 22, title: 'Addressing Cascading Failures', desc: 'Queue saturation, retry amplification, deadline propagation, cold cache recovery', docKey: 'sre_ch22' },
+    { num: 23, title: 'Managing Critical State: Distributed Consensus', desc: 'Paxos, Raft, leader election, split-brain, replica placement', docKey: 'sre_ch23' },
+    { num: 24, title: 'Distributed Periodic Scheduling with Cron', desc: 'Building a reliable distributed cron system' },
+    { num: 25, title: 'Data Processing Pipelines', desc: 'Reliability patterns for batch and streaming pipelines' },
+    { num: 26, title: 'Data Integrity: What You Read Is What You Wrote', desc: 'Backups, checksums, and data durability guarantees' },
+    { num: 27, title: 'Reliable Product Launches at Scale', desc: 'Launch readiness reviews and reliability gates' },
+    { num: 28, title: 'Accelerating SREs to On-Call and Beyond', desc: 'Onboarding, training, and knowledge transfer' },
+    { num: 29, title: 'Dealing with Interrupts', desc: 'Managing interrupt-driven work vs. project work' },
+    { num: 30, title: 'Embedding an SRE to Recover from Operational Overload', desc: 'How to rescue an overloaded ops team' },
+    { num: 31, title: 'Communication and Collaboration in SRE', desc: 'Cross-team communication and production meetings' },
+    { num: 32, title: 'The Evolving SRE Engagement Model', desc: 'How SRE relationships with product teams change over time' },
+    { num: 33, title: 'Lessons Learned from Other Industries', desc: 'Aviation, nuclear, and other safety-critical fields' },
+    { num: 34, title: 'Conclusion', desc: 'The future of SRE' },
+  ];
+
+  const reads = getReads();
+  const available = SRE_CHAPTERS.filter(c => c.docKey);
+  const readCount = available.filter(c => reads[c.docKey]).length;
+  const pct = available.length > 0 ? Math.round((readCount / available.length) * 100) : 0;
+
+  // Update progress
+  document.getElementById('sre-progress-bar').style.width = pct + '%';
+  document.getElementById('sre-progress-label').textContent = `${readCount} / ${available.length} chapters read`;
+
+  // Render chapter list
+  const list = document.getElementById('sre-chapter-list');
+  SRE_CHAPTERS.forEach(ch => {
+    const isAvailable = !!ch.docKey;
+    const isRead = isAvailable && !!reads[ch.docKey];
+
+    if (isAvailable) {
+      const a = document.createElement('a');
+      a.href = `docs.html?file=${ch.docKey}`;
+      a.className = 'chapter-item available';
+      a.innerHTML = `
+        <span class="chapter-num">Ch. ${ch.num}</span>
+        <div class="chapter-info">
+          <div class="chapter-title">${esc(ch.title)}</div>
+          <div class="chapter-desc">${esc(ch.desc)}</div>
+        </div>
+        <span class="chapter-status ${isRead ? 'read' : 'arrow'}">${isRead ? '✓ Read' : '→'}</span>
+      `;
+      list.appendChild(a);
+    } else {
+      const div = document.createElement('div');
+      div.className = 'chapter-item locked';
+      div.innerHTML = `
+        <span class="chapter-num">Ch. ${ch.num}</span>
+        <div class="chapter-info">
+          <div class="chapter-title">${esc(ch.title)}</div>
+          <div class="chapter-desc">${esc(ch.desc)}</div>
+        </div>
+        <span class="chapter-status" style="color:#3d4155;font-size:0.68rem;">—</span>
+      `;
+      list.appendChild(div);
+    }
+  });
+
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+})();
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>

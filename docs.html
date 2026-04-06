@@ -9,6 +9,94 @@
   <meta name="theme-color" content="#7c63f5">
   <link rel="stylesheet" href="css/style.css">
   <style>
+    /* ── Mark-as-read button ─────────────────────────────────── */
+    .mark-read-btn {
+      margin-left: auto;
+      padding: 0.3em 0.8em;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: transparent;
+      color: var(--muted, #7a8299);
+      font-size: 0.72rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .mark-read-btn:hover {
+      background: rgba(255,255,255,0.06);
+      border-color: rgba(255,255,255,0.2);
+      color: #c0c8d8;
+    }
+    .mark-read-btn.is-read {
+      background: rgba(20,184,166,0.12);
+      border-color: rgba(20,184,166,0.3);
+      color: #2dd4bf;
+    }
+    .mark-read-btn.is-read:hover {
+      background: rgba(20,184,166,0.05);
+      border-color: rgba(255,255,255,0.12);
+      color: var(--muted, #7a8299);
+    }
+
+    /* ── Chapter prev/next nav ───────────────────────────────── */
+    .chapter-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .chapter-nav-link {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      padding: 0.6rem 0.9rem;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      text-decoration: none;
+      transition: background 0.15s, border-color 0.15s;
+      max-width: 42%;
+      min-width: 0;
+    }
+    .chapter-nav-link:hover {
+      background: rgba(124,99,245,0.08);
+      border-color: rgba(124,99,245,0.3);
+    }
+    .chapter-nav-dir {
+      font-size: 0.67rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #5c6370;
+    }
+    .chapter-nav-title {
+      font-size: 0.82rem;
+      color: #9aa0b8;
+      border: none !important;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chapter-nav-link:hover .chapter-nav-title { color: #a78bfa; }
+    .chapter-nav-link.next { text-align: right; }
+    .chapter-nav-home {
+      font-size: 0.78rem;
+      color: #5c6370;
+      text-decoration: none;
+      border: none !important;
+      padding: 0.4rem;
+      transition: color 0.15s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .chapter-nav-home:hover { color: #a78bfa; }
+
     /* ── Docs layout ──────────────────────────────────────── */
     .docs-layout {
       display: grid;
@@ -287,9 +375,10 @@
 <body>
 <header class="site-header">
   <div class="inner">
-    <a id="back-link" href="go.html" class="header-back">← Back</a>
+    <a id="back-link" href="library.html" class="header-back">← Back</a>
     <a href="index.html" class="site-logo">pri<span>m</span>er</a>
-    <div id="doc-title-header" style="font-size:0.85rem;color:#7a8299;"></div>
+    <div id="doc-title-header" style="font-size:0.85rem;color:#7a8299;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+    <a href="library.html" class="header-library">📚 Library</a>
   </div>
 </header>
 
@@ -323,14 +412,93 @@
 <script src="js/markdown.js?v=2"></script>
 <script>
 (function () {
-  // ── Config: known docs ──────────────────────────────────────
+  // ── Library read state ──────────────────────────────────────
+  const LIBRARY_KEY = 'primer:library';
+  function getLibraryReads() {
+    try { return JSON.parse(localStorage.getItem(LIBRARY_KEY) || '{}'); } catch { return {}; }
+  }
+  function setLibraryRead(key, val) {
+    const r = getLibraryReads();
+    if (val) r[key] = true; else delete r[key];
+    localStorage.setItem(LIBRARY_KEY, JSON.stringify(r));
+  }
+
+  // ── Book definitions (for prev/next nav) ────────────────────
+  const BOOKS = {
+    sre: {
+      title: 'Site Reliability Engineering',
+      back: 'library.html',
+      chapters: ['sre_ch03','sre_ch04','sre_ch05','sre_ch06','sre_ch08','sre_ch10','sre_ch12','sre_ch15','sre_ch17','sre_ch21','sre_ch22','sre_ch23'],
+    },
+  };
+
+  // ── Known docs ──────────────────────────────────────────────
   const DOCS = {
     'effective_go': {
       file: 'docs/effective_go.md',
       back: 'go.html',
       badge: 'Reference',
       source: '<a href="https://go.dev/doc/effective_go" target="_blank" rel="noopener">go.dev/doc/effective_go</a>',
-      sourcePlain: 'go.dev/doc/effective_go',
+    },
+    'sre_ch03': {
+      file: 'docs/sre-book/ch03-embracing-risk.md',
+      back: 'library.html', badge: 'SRE Book · Ch. 3', book: 'sre', title: 'Embracing Risk',
+      source: '<a href="https://sre.google/sre-book/embracing-risk/" target="_blank" rel="noopener">sre.google/sre-book/embracing-risk</a>',
+    },
+    'sre_ch04': {
+      file: 'docs/sre-book/ch04-service-level-objectives.md',
+      back: 'library.html', badge: 'SRE Book · Ch. 4', book: 'sre', title: 'Service Level Objectives',
+      source: '<a href="https://sre.google/sre-book/service-level-objectives/" target="_blank" rel="noopener">sre.google/sre-book/service-level-objectives</a>',
+    },
+    'sre_ch05': {
+      file: 'docs/sre-book/ch05-eliminating-toil.md',
+      back: 'library.html', badge: 'SRE Book · Ch. 5', book: 'sre', title: 'Eliminating Toil',
+      source: '<a href="https://sre.google/sre-book/eliminating-toil/" target="_blank" rel="noopener">sre.google/sre-book/eliminating-toil</a>',
+    },
+    'sre_ch06': {
+      file: 'docs/sre-book/ch06-monitoring-distributed-systems.md',
+      back: 'library.html', badge: 'SRE Book · Ch. 6', book: 'sre', title: 'Monitoring Distributed Systems',
+      source: '<a href="https://sre.google/sre-book/monitoring-distributed-systems/" target="_blank" rel="noopener">sre.google/sre-book/monitoring-distributed-systems</a>',
+    },
+    'sre_ch08': {
+      file: 'docs/sre-book/ch08-release-engineering.md',
+      back: 'library.html', badge: 'SRE Book · Ch. 8', book: 'sre', title: 'Release Engineering',
+      source: '<a href="https://sre.google/sre-book/release-engineering/" target="_blank" rel="noopener">sre.google/sre-book/release-engineering</a>',
+    },
+    'sre_ch10': {
+      file: 'docs/sre-book/ch10-practical-alerting.md',
+      back: 'library.html', badge: 'SRE Book · Ch. 10', book: 'sre', title: 'Practical Alerting',
+      source: '<a href="https://sre.google/sre-book/practical-alerting/" target="_blank" rel="noopener">sre.google/sre-book/practical-alerting</a>',
+    },
+    'sre_ch12': {
+      file: 'docs/sre-book/ch12-effective-troubleshooting.md',
+      back: 'library.html', badge: 'SRE Book · Ch. 12', book: 'sre', title: 'Effective Troubleshooting',
+      source: '<a href="https://sre.google/sre-book/effective-troubleshooting/" target="_blank" rel="noopener">sre.google/sre-book/effective-troubleshooting</a>',
+    },
+    'sre_ch15': {
+      file: 'docs/sre-book/ch15-postmortem-culture.md',
+      back: 'library.html', badge: 'SRE Book · Ch. 15', book: 'sre', title: 'Postmortem Culture',
+      source: '<a href="https://sre.google/sre-book/postmortem-culture/" target="_blank" rel="noopener">sre.google/sre-book/postmortem-culture</a>',
+    },
+    'sre_ch17': {
+      file: 'docs/sre-book/ch17-testing-reliability.md',
+      back: 'library.html', badge: 'SRE Book · Ch. 17', book: 'sre', title: 'Testing for Reliability',
+      source: '<a href="https://sre.google/sre-book/testing-reliability/" target="_blank" rel="noopener">sre.google/sre-book/testing-reliability</a>',
+    },
+    'sre_ch21': {
+      file: 'docs/sre-book/ch21-handling-overload.md',
+      back: 'library.html', badge: 'SRE Book · Ch. 21', book: 'sre', title: 'Handling Overload',
+      source: '<a href="https://sre.google/sre-book/handling-overload/" target="_blank" rel="noopener">sre.google/sre-book/handling-overload</a>',
+    },
+    'sre_ch22': {
+      file: 'docs/sre-book/ch22-cascading-failures.md',
+      back: 'library.html', badge: 'SRE Book · Ch. 22', book: 'sre', title: 'Cascading Failures',
+      source: '<a href="https://sre.google/sre-book/addressing-cascading-failures/" target="_blank" rel="noopener">sre.google/sre-book/addressing-cascading-failures</a>',
+    },
+    'sre_ch23': {
+      file: 'docs/sre-book/ch23-distributed-consensus.md',
+      back: 'library.html', badge: 'SRE Book · Ch. 23', book: 'sre', title: 'Distributed Consensus',
+      source: '<a href="https://sre.google/sre-book/managing-critical-state/" target="_blank" rel="noopener">sre.google/sre-book/managing-critical-state</a>',
     },
   };
 
@@ -348,6 +516,7 @@
 
   // Update back link
   document.getElementById('back-link').href = doc.back;
+  document.getElementById('back-link').textContent = doc.book ? '← Library' : '← Back';
 
   function escHtml(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -376,11 +545,16 @@
     // Build HTML
     const html = renderMarkdown(md);
 
-    // Build doc meta block
+    // Build doc meta block (with optional mark-as-read button for book chapters)
+    const isRead = !!getLibraryReads()[docKey];
+    const markBtn = doc.book
+      ? `<button class="mark-read-btn${isRead ? ' is-read' : ''}" id="mark-read-btn">${isRead ? '✓ Read' : 'Mark as read'}</button>`
+      : '';
     const meta = `
       <div class="doc-meta">
         <span class="doc-meta-badge">${escHtml(doc.badge)}</span>
         <span class="doc-meta-source">Source: ${doc.source}</span>
+        ${markBtn}
       </div>`;
 
     document.getElementById('docs-content').innerHTML = meta + html;
@@ -460,6 +634,48 @@
 
     // Apply syntax highlighting to all code blocks now that they're in the DOM
     if (typeof window.highlightAll === 'function') window.highlightAll();
+
+    // ── Mark-as-read button logic ─────────────────────────
+    if (doc.book) {
+      const btn = document.getElementById('mark-read-btn');
+      if (btn) {
+        btn.addEventListener('click', () => {
+          const nowRead = !btn.classList.contains('is-read');
+          setLibraryRead(docKey, nowRead);
+          btn.classList.toggle('is-read', nowRead);
+          btn.textContent = nowRead ? '✓ Read' : 'Mark as read';
+        });
+      }
+    }
+
+    // ── Prev / next chapter nav ───────────────────────────
+    if (doc.book && BOOKS[doc.book]) {
+      const book = BOOKS[doc.book];
+      const idx = book.chapters.indexOf(docKey);
+      const prevKey = idx > 0 ? book.chapters[idx - 1] : null;
+      const nextKey = idx < book.chapters.length - 1 ? book.chapters[idx + 1] : null;
+      const prevDoc = prevKey ? DOCS[prevKey] : null;
+      const nextDoc = nextKey ? DOCS[nextKey] : null;
+
+      const nav = document.createElement('nav');
+      nav.className = 'chapter-nav';
+      nav.innerHTML =
+        (prevDoc
+          ? `<a href="docs.html?file=${prevKey}" class="chapter-nav-link">
+               <span class="chapter-nav-dir">← Previous</span>
+               <span class="chapter-nav-title">${escHtml(prevDoc.title)}</span>
+             </a>`
+          : `<span></span>`) +
+        `<a href="library.html" class="chapter-nav-home">📚 ${escHtml(book.title)}</a>` +
+        (nextDoc
+          ? `<a href="docs.html?file=${nextKey}" class="chapter-nav-link next">
+               <span class="chapter-nav-dir">Next →</span>
+               <span class="chapter-nav-title">${escHtml(nextDoc.title)}</span>
+             </a>`
+          : `<span></span>`);
+
+      document.getElementById('docs-content').appendChild(nav);
+    }
   }
 })();
 

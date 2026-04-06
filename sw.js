@@ -1,4 +1,4 @@
-const CACHE = 'primer-v19';
+const CACHE = 'primer-v20';
 
 const PRECACHE = [
   './',
@@ -32,8 +32,21 @@ const PRECACHE = [
   './topics/go-http.html',
   './topics/go-api.html',
   './docs.html',
+  './library.html',
   './js/markdown.js',
   './docs/effective_go.md',
+  './docs/sre-book/ch03-embracing-risk.md',
+  './docs/sre-book/ch04-service-level-objectives.md',
+  './docs/sre-book/ch05-eliminating-toil.md',
+  './docs/sre-book/ch06-monitoring-distributed-systems.md',
+  './docs/sre-book/ch08-release-engineering.md',
+  './docs/sre-book/ch10-practical-alerting.md',
+  './docs/sre-book/ch12-effective-troubleshooting.md',
+  './docs/sre-book/ch15-postmortem-culture.md',
+  './docs/sre-book/ch17-testing-reliability.md',
+  './docs/sre-book/ch21-handling-overload.md',
+  './docs/sre-book/ch22-cascading-failures.md',
+  './docs/sre-book/ch23-distributed-consensus.md',
 ];
 
 self.addEventListener('install', e => {
