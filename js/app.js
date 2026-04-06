@@ -11,7 +11,7 @@ const TIERS = [
   {
     label: 'Tier 2 — Important',
     desc: 'Foundational and practical. Build this in parallel.',
-    ids: ['caching', 'http-networking', 'api-design', 'security', 'infrastructure', 'cicd', 'message-queues'],
+    ids: ['caching', 'http-networking', 'api-design', 'security', 'infrastructure', 'cicd', 'message-queues', 'data-processing', 'linux', 'search', 'system-design-interviews'],
   },
 ];
 
@@ -95,6 +95,38 @@ const TOPICS = [
     desc: 'Kafka, RabbitMQ, delivery semantics, pub/sub, DLQ',
     path: 'topics/message-queues.html',
     total: 3,
+  },
+  {
+    id: 'data-processing',
+    title: 'Data Processing',
+    icon: '📊',
+    desc: 'Batch vs stream processing, MapReduce, Parquet, data warehousing, CDC, and Flink',
+    path: 'topics/data-processing.html',
+    total: 6,
+  },
+  {
+    id: 'linux',
+    title: 'Linux & the OS',
+    icon: '🐧',
+    desc: 'Processes, /proc, file descriptors, signals, memory management, and performance tuning',
+    path: 'topics/linux.html',
+    total: 6,
+  },
+  {
+    id: 'search',
+    title: 'Search',
+    icon: '🔍',
+    desc: 'Inverted indexes, TF-IDF, BM25, analyzers, Elasticsearch, and search architecture patterns',
+    path: 'topics/search.html',
+    total: 6,
+  },
+  {
+    id: 'system-design-interviews',
+    title: 'System Design Interviews',
+    icon: '🎙️',
+    desc: 'A repeatable framework plus worked designs: URL shortener, rate limiter, notification service, social feed',
+    path: 'topics/system-design-interviews.html',
+    total: 5,
   },
 ];
 

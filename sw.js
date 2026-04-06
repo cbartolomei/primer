@@ -1,4 +1,4 @@
-const CACHE = 'primer-v17';
+const CACHE = 'primer-v19';
 
 const PRECACHE = [
   './',
@@ -25,6 +25,10 @@ const PRECACHE = [
   './topics/go-control-data.html',
   './topics/go-idioms.html',
   './topics/cicd.html',
+  './topics/data-processing.html',
+  './topics/linux.html',
+  './topics/search.html',
+  './topics/system-design-interviews.html',
   './topics/go-http.html',
   './topics/go-api.html',
   './docs.html',
