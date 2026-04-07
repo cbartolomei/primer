@@ -251,6 +251,29 @@
 
   <hr class="library-divider">
 
+  <!-- ── Go Blog ──────────────────────────────────────────────── -->
+  <div class="book-section">
+    <div class="book-header">
+      <h2 class="book-title">Go Blog — Selected Articles</h2>
+      <div class="book-byline">The Go Authors · go.dev/blog</div>
+      <a href="https://go.dev/blog/" target="_blank" rel="noopener" class="book-source-link">go.dev/blog · Free online ↗</a>
+      <p class="book-desc">Two canonical Go blog posts saved for offline reading. The slog article is the definitive guide to structured logging in Go 1.21+. The subtests article is the authoritative explanation of table-driven tests and benchmarks.</p>
+    </div>
+
+    <div class="book-progress-row">
+      <div class="book-progress-bar-wrap">
+        <div class="book-progress-bar" id="go-progress-bar" style="width:0%"></div>
+      </div>
+      <span class="book-progress-label" id="go-progress-label">0 / 2 articles read</span>
+    </div>
+
+    <div class="chapter-list" id="go-chapter-list">
+      <!-- Rendered by JS below -->
+    </div>
+  </div>
+
+  <hr class="library-divider">
+
   <!-- ── Effective Go ──────────────────────────────────────── -->
   <div class="book-section">
     <div class="book-header">
@@ -401,6 +424,34 @@
       <span class="chapter-status ${isRead ? 'read' : 'arrow'}">${isRead ? '✓ Read' : '→'}</span>
     `;
     k8sList.appendChild(a);
+  });
+
+  // ── Go Blog articles ─────────────────────────────────────────
+  const GO_ARTICLES = [
+    { title: 'Structured Logging with slog', desc: 'Design goals, usage tour, performance model, and custom handlers — the definitive slog guide', docKey: 'go_slog' },
+    { title: 'Using Subtests and Sub-benchmarks', desc: 'The canonical explanation of t.Run, test filtering, parallelism, and benchmark sub-tests', docKey: 'go_testing' },
+  ];
+
+  const goReadCount = GO_ARTICLES.filter(p => reads[p.docKey]).length;
+  const goPct = GO_ARTICLES.length > 0 ? Math.round((goReadCount / GO_ARTICLES.length) * 100) : 0;
+  document.getElementById('go-progress-bar').style.width = goPct + '%';
+  document.getElementById('go-progress-label').textContent = `${goReadCount} / ${GO_ARTICLES.length} articles read`;
+
+  const goList = document.getElementById('go-chapter-list');
+  GO_ARTICLES.forEach((p, i) => {
+    const isRead = !!reads[p.docKey];
+    const a = document.createElement('a');
+    a.href = `docs.html?file=${p.docKey}`;
+    a.className = 'chapter-item available';
+    a.innerHTML = `
+      <span class="chapter-num" style="font-size:0.7rem;min-width:2rem;">${i + 1}</span>
+      <div class="chapter-info">
+        <div class="chapter-title">${esc(p.title)}</div>
+        <div class="chapter-desc">${esc(p.desc)}</div>
+      </div>
+      <span class="chapter-status ${isRead ? 'read' : 'arrow'}">${isRead ? '✓ Read' : '→'}</span>
+    `;
+    goList.appendChild(a);
   });
 })();
 

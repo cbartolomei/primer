@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Testing &amp; Logging — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="inner">
+    <a href="../go.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 6 sections understood</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>🧪 Testing &amp; Logging</h1>
+    <p class="subtitle">The <code>testing</code> package from first principles — table-driven tests, subtests, benchmarks, fuzzing, and HTTP handler testing. Plus structured logging with <code>log/slog</code>.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <!-- SECTION 1: The testing Package -->
+    <div class="section" data-id="testing-basics">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">✅</span><h2>The testing Package</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Go's <code>testing</code> package is built into the toolchain — no test framework required. Tests live in <code>_test.go</code> files alongside the code they test, in the same package (or a <code>_test</code> suffixed package for black-box tests). Run with <code>go test ./...</code>.</p>
+
+        <h3>Test Function Basics</h3>
+        <pre><code>// File: math_test.go
+package math
+
+import "testing"
+
+// Must start with Test, take *testing.T, return nothing
+func TestAdd(t *testing.T) {
+    got := Add(2, 3)
+    want := 5
+    if got != want {
+        t.Errorf("Add(2, 3) = %d; want %d", got, want)
+    }
+}</code></pre>
+
+        <h3>t.Error vs t.Fatal — When to Stop</h3>
+        <pre><code>t.Error("msg")    // mark test failed, continue running
+t.Errorf("got %v, want %v", got, want)
+
+t.Fatal("msg")    // mark test failed, stop this test immediately
+t.Fatalf("open %s: %v", path, err)
+
+// Use Fatal when subsequent code would panic or be meaningless:
+f, err := os.Open("testdata/input.txt")
+if err != nil {
+    t.Fatalf("setup: %v", err)   // no point continuing
+}
+defer f.Close()
+
+// Use Error when you want to collect multiple failures:
+if got.Name != want.Name {
+    t.Errorf("Name: got %q, want %q", got.Name, want.Name)
+}
+if got.Age != want.Age {
+    t.Errorf("Age: got %d, want %d", got.Age, want.Age)
+}</code></pre>
+
+        <h3>t.Log and t.Logf</h3>
+        <p>Log output is only shown when the test fails (or with <code>-v</code>). Use it for context that helps debug failures, not for regular output:</p>
+        <pre><code>t.Log("starting with config:", cfg)
+t.Logf("response body: %s", body)
+
+// Run tests with verbose output to see all logs:
+// go test -v ./...</code></pre>
+
+        <h3>t.Helper — Correct Line Numbers</h3>
+        <p>When you extract test logic into a helper function, failures report the helper's line number — not the caller's. Calling <code>t.Helper()</code> marks the function as a helper so failures point to the right place:</p>
+        <pre><code>func assertEqual(t *testing.T, got, want int) {
+    t.Helper()  // without this, error points here instead of the caller
+    if got != want {
+        t.Errorf("got %d, want %d", got, want)
+    }
+}
+
+func TestSomething(t *testing.T) {
+    assertEqual(t, Compute(5), 25)  // failure points to this line ✓
+}</code></pre>
+
+        <h3>t.Parallel — Concurrent Tests</h3>
+        <pre><code>func TestExpensive(t *testing.T) {
+    t.Parallel()  // this test may run concurrently with other parallel tests
+    // ...
+}
+
+// In subtests: call t.Parallel() inside t.Run
+// but capture the loop variable first:
+for _, tc := range cases {
+    tc := tc  // capture (required pre-Go 1.22; automatic in 1.22+)
+    t.Run(tc.name, func(t *testing.T) {
+        t.Parallel()
+        // ...
+    })
+}</code></pre>
+
+        <h3>TestMain — Global Setup &amp; Teardown</h3>
+        <pre><code>func TestMain(m *testing.M) {
+    // setup: start a test database, spin up a server, etc.
+    db = setupTestDB()
+
+    code := m.Run()  // run all tests
+
+    // teardown
+    db.Close()
+    os.Exit(code)
+}</code></pre>
+
+        <h3>t.Cleanup — Per-Test Teardown</h3>
+        <p><code>t.Cleanup</code> registers a function to run when the test (and all its subtests) finish. Prefer it over <code>defer</code> in helpers because it runs even for subtests created after the helper returns:</p>
+        <pre><code>func createTempFile(t *testing.T) string {
+    t.Helper()
+    f, err := os.CreateTemp("", "test-*.txt")
+    if err != nil {
+        t.Fatal(err)
+    }
+    t.Cleanup(func() { os.Remove(f.Name()) })  // runs when test ends
+    return f.Name()
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- SECTION 2: Table-Driven Tests -->
+    <div class="section" data-id="table-driven">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📋</span><h2>Table-Driven Tests</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Table-driven tests are the canonical Go pattern for exhaustive testing. Instead of one <code>TestXxx</code> per input combination, you define a slice of test cases and loop. <code>t.Run</code> gives each case its own named subtest — failures identify exactly which case failed, and you can run a single case with <code>go test -run TestAdd/negative</code>.</p>
+
+        <h3>The Pattern</h3>
+        <pre><code>func TestDivide(t *testing.T) {
+    cases := []struct {
+        name    string
+        a, b    float64
+        want    float64
+        wantErr bool
+    }{
+        {name: "positive", a: 10, b: 2, want: 5},
+        {name: "negative", a: -6, b: 3, want: -2},
+        {name: "fractional", a: 7, b: 2, want: 3.5},
+        {name: "divide by zero", a: 1, b: 0, wantErr: true},
+    }
+
+    for _, tc := range cases {
+        t.Run(tc.name, func(t *testing.T) {
+            got, err := Divide(tc.a, tc.b)
+
+            if (err != nil) != tc.wantErr {
+                t.Fatalf("Divide(%v, %v) error = %v, wantErr %v",
+                    tc.a, tc.b, err, tc.wantErr)
+            }
+            if err != nil {
+                return  // expected error — nothing more to check
+            }
+            if got != tc.want {
+                t.Errorf("Divide(%v, %v) = %v, want %v",
+                    tc.a, tc.b, got, tc.want)
+            }
+        })
+    }
+}</code></pre>
+
+        <h3>Running Specific Subtests</h3>
+        <pre><code>go test -run TestDivide             # all cases
+go test -run TestDivide/negative    # only "negative" case
+go test -run TestDivide/div         # regex match — runs "divide by zero"
+go test -v -run TestDivide          # show all subtest names and status</code></pre>
+
+        <h3>Testing Error Values Precisely</h3>
+        <pre><code>cases := []struct {
+    name    string
+    input   string
+    want    int
+    wantErr error  // the specific error expected, nil if none
+}{
+    {name: "valid", input: "42", want: 42},
+    {name: "empty", input: "", wantErr: ErrEmptyInput},
+    {name: "overflow", input: "99999999999", wantErr: ErrOverflow},
+}
+
+for _, tc := range cases {
+    t.Run(tc.name, func(t *testing.T) {
+        got, err := Parse(tc.input)
+        if !errors.Is(err, tc.wantErr) {
+            t.Fatalf("err = %v, want %v", err, tc.wantErr)
+        }
+        if err == nil && got != tc.want {
+            t.Errorf("got %d, want %d", got, tc.want)
+        }
+    })
+}</code></pre>
+
+        <h3>Testdata &amp; Golden Files</h3>
+        <p>Put test fixtures in a <code>testdata/</code> directory — the Go tool ignores it during builds. For complex expected outputs, use golden files: on first run (or with a flag) write the output; on subsequent runs compare against it:</p>
+        <pre><code>// testdata/input.json, testdata/want.json
+
+func TestProcess(t *testing.T) {
+    input, _ := os.ReadFile("testdata/input.json")
+    got := Process(input)
+
+    // Golden file pattern
+    wantFile := "testdata/want.json"
+    if *update {  // go test -update to regenerate
+        os.WriteFile(wantFile, got, 0644)
+    }
+    want, _ := os.ReadFile(wantFile)
+    if !bytes.Equal(got, want) {
+        t.Errorf("output mismatch; run with -update to regenerate")
+    }
+}
+
+var update = flag.Bool("update", false, "update golden files")</code></pre>
+      </div>
+    </div>
+
+    <!-- SECTION 3: Benchmarks -->
+    <div class="section" data-id="benchmarks">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">⚡</span><h2>Benchmarks</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Benchmarks live in <code>_test.go</code> files alongside tests but use <code>*testing.B</code>. The framework runs your function repeatedly, increasing <code>b.N</code> until results are statistically stable — you don't choose <code>b.N</code>, you loop on it.</p>
+
+        <h3>Writing a Benchmark</h3>
+        <pre><code>func BenchmarkConcat(b *testing.B) {
+    // b.N is set by the framework — loop exactly b.N times
+    for i := 0; i < b.N; i++ {
+        _ = strings.Join([]string{"a", "b", "c"}, "-")
+    }
+}
+
+// Run benchmarks (not run by default with go test):
+// go test -bench=.             run all benchmarks
+// go test -bench=BenchmarkConcat
+// go test -bench=. -benchmem   include allocation stats
+// go test -bench=. -count=5    run 5 times for stability</code></pre>
+
+        <h3>Benchmark Output</h3>
+        <pre><code>BenchmarkConcat-8    10000000    112 ns/op    16 B/op    1 allocs/op
+//                  ^runs        ^time/op     ^bytes     ^heap allocs</code></pre>
+
+        <h3>Setup Outside the Loop — b.ResetTimer</h3>
+        <pre><code>func BenchmarkProcess(b *testing.B) {
+    // Expensive setup — don't count this time
+    data, err := os.ReadFile("testdata/large.json")
+    if err != nil {
+        b.Fatal(err)
+    }
+
+    b.ResetTimer()  // start timing from here
+
+    for i := 0; i < b.N; i++ {
+        _ = Process(data)
+    }
+}
+
+// Pause/resume for setup within the loop:
+for i := 0; i < b.N; i++ {
+    b.StopTimer()
+    input := generateInput()   // excluded from timing
+    b.StartTimer()
+    _ = Process(input)
+}</code></pre>
+
+        <h3>Preventing Compiler Optimisation</h3>
+        <p>The compiler may optimize away a benchmark's work if the result is never used. Assign to a package-level variable to prevent this:</p>
+        <pre><code>var result int  // package-level sink
+
+func BenchmarkFib(b *testing.B) {
+    var r int
+    for i := 0; i < b.N; i++ {
+        r = Fib(20)
+    }
+    result = r  // prevent optimisation
+}</code></pre>
+
+        <h3>Comparing Benchmarks with benchstat</h3>
+        <pre><code># Save baseline
+go test -bench=. -count=10 > old.txt
+
+# Make your change, then:
+go test -bench=. -count=10 > new.txt
+
+# Compare
+go install golang.org/x/perf/cmd/benchstat@latest
+benchstat old.txt new.txt
+# name         old time/op  new time/op  delta
+# BenchmarkX   112ns ± 2%   89ns ± 1%   -21%  (p=0.000)</code></pre>
+      </div>
+    </div>
+
+    <!-- SECTION 4: Fuzzing -->
+    <div class="section" data-id="fuzzing">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🎲</span><h2>Fuzzing (Go 1.18+)</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>Fuzzing automatically generates inputs to find crashes and panics. Go 1.18 added native fuzzing — no external tool needed. It's most valuable for parsers, decoders, and any function that processes untrusted input.</p>
+
+        <h3>Writing a Fuzz Test</h3>
+        <pre><code>func FuzzParseDate(f *testing.F) {
+    // Seed corpus — known interesting inputs
+    f.Add("2025-04-07")
+    f.Add("")
+    f.Add("not-a-date")
+    f.Add("9999-99-99")
+
+    // The fuzz target — called with both seed and generated inputs
+    f.Fuzz(func(t *testing.T, input string) {
+        // Should never panic — just return an error for invalid input
+        _, err := ParseDate(input)
+        if err != nil {
+            return  // invalid input is fine
+        }
+        // If it parsed successfully, round-trip should be stable
+        // (add property checks here)
+    })
+}</code></pre>
+
+        <h3>Running Fuzz Tests</h3>
+        <pre><code># Run seed corpus only (fast — included in go test ./...)
+go test -run FuzzParseDate
+
+# Actually fuzz (runs until failure or Ctrl-C)
+go test -fuzz=FuzzParseDate
+
+# Fuzz for a fixed duration
+go test -fuzz=FuzzParseDate -fuzztime=30s
+
+# When a failure is found, it's saved to:
+# testdata/fuzz/FuzzParseDate/&lt;hash&gt;
+# Re-run a specific failing input:
+go test -run FuzzParseDate/&lt;hash&gt;</code></pre>
+
+        <h3>What to Fuzz</h3>
+        <ul>
+          <li>Parsers: JSON, YAML, CSV, custom formats — should never panic on bad input</li>
+          <li>Encoders/decoders: encode(decode(x)) == x (round-trip property)</li>
+          <li>Compression: compress(decompress(x)) == x</li>
+          <li>Any function that accepts a <code>[]byte</code> or <code>string</code> from untrusted sources</li>
+        </ul>
+        <pre><code>// Property test: decode(encode(x)) == x
+f.Fuzz(func(t *testing.T, orig []byte) {
+    encoded := Encode(orig)
+    decoded, err := Decode(encoded)
+    if err != nil {
+        t.Fatalf("decode failed after encode: %v", err)
+    }
+    if !bytes.Equal(orig, decoded) {
+        t.Fatalf("round-trip failed:\n  orig: %x\n  got:  %x", orig, decoded)
+    }
+})</code></pre>
+      </div>
+    </div>
+
+    <!-- SECTION 5: httptest -->
+    <div class="section" data-id="httptest">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🌐</span><h2>httptest — Testing HTTP Handlers</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>The <code>net/http/httptest</code> package provides two tools: <code>ResponseRecorder</code> for testing handlers in-process (fast, no network), and <code>Server</code> for integration tests that need a real HTTP server.</p>
+
+        <h3>httptest.NewRecorder — Unit Testing Handlers</h3>
+        <pre><code>import (
+    "net/http"
+    "net/http/httptest"
+    "testing"
+)
+
+func TestHealthHandler(t *testing.T) {
+    req := httptest.NewRequest(http.MethodGet, "/health", nil)
+    w   := httptest.NewRecorder()
+
+    HealthHandler(w, req)
+
+    res := w.Result()
+    defer res.Body.Close()
+
+    if res.StatusCode != http.StatusOK {
+        t.Errorf("status = %d, want %d", res.StatusCode, http.StatusOK)
+    }
+
+    body, _ := io.ReadAll(res.Body)
+    if !strings.Contains(string(body), "ok") {
+        t.Errorf("body %q does not contain 'ok'", body)
+    }
+}</code></pre>
+
+        <h3>Testing JSON API Handlers</h3>
+        <pre><code>func TestCreateUser(t *testing.T) {
+    payload := `{"name":"Alice","email":"alice@example.com"}`
+    req := httptest.NewRequest(http.MethodPost, "/users",
+        strings.NewReader(payload))
+    req.Header.Set("Content-Type", "application/json")
+
+    w := httptest.NewRecorder()
+    app.CreateUserHandler(w, req)
+
+    res := w.Result()
+    if res.StatusCode != http.StatusCreated {
+        t.Fatalf("got %d, want %d; body: %s",
+            res.StatusCode, http.StatusCreated, w.Body)
+    }
+
+    var got User
+    if err := json.NewDecoder(res.Body).Decode(&got); err != nil {
+        t.Fatalf("decode response: %v", err)
+    }
+    if got.Name != "Alice" {
+        t.Errorf("Name = %q, want %q", got.Name, "Alice")
+    }
+}</code></pre>
+
+        <h3>Testing Middleware</h3>
+        <pre><code>func TestAuthMiddleware(t *testing.T) {
+    // A simple next handler that just returns 200
+    next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.WriteHeader(http.StatusOK)
+    })
+    handler := AuthMiddleware(next)
+
+    cases := []struct {
+        name   string
+        token  string
+        wantStatus int
+    }{
+        {name: "valid token", token: "Bearer valid", wantStatus: 200},
+        {name: "missing token", token: "", wantStatus: 401},
+        {name: "invalid token", token: "Bearer bad", wantStatus: 401},
+    }
+
+    for _, tc := range cases {
+        t.Run(tc.name, func(t *testing.T) {
+            req := httptest.NewRequest("GET", "/", nil)
+            if tc.token != "" {
+                req.Header.Set("Authorization", tc.token)
+            }
+            w := httptest.NewRecorder()
+            handler.ServeHTTP(w, req)
+            if w.Code != tc.wantStatus {
+                t.Errorf("status = %d, want %d", w.Code, tc.wantStatus)
+            }
+        })
+    }
+}</code></pre>
+
+        <h3>httptest.NewServer — Integration Tests</h3>
+        <pre><code>// NewServer starts a real HTTP server on a random port
+func TestHTTPClient(t *testing.T) {
+    ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintln(w, "hello")
+    }))
+    defer ts.Close()
+
+    res, err := http.Get(ts.URL + "/")
+    if err != nil {
+        t.Fatal(err)
+    }
+    body, _ := io.ReadAll(res.Body)
+    res.Body.Close()
+
+    if strings.TrimSpace(string(body)) != "hello" {
+        t.Errorf("got %q, want %q", body, "hello")
+    }
+}
+
+// NewTLSServer for testing TLS-specific behaviour
+ts := httptest.NewTLSServer(handler)
+client := ts.Client()  // pre-configured to trust the test cert
+res, err := client.Get(ts.URL + "/")</code></pre>
+      </div>
+    </div>
+
+    <!-- SECTION 6: log/slog -->
+    <div class="section" data-id="slog">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📋</span><h2>log/slog — Structured Logging</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><code>log/slog</code> was added in Go 1.21. It brings structured, levelled logging to the standard library. Where the old <code>log</code> package produces plain text lines, slog produces key-value pairs that log aggregators (Datadog, Loki, CloudWatch) can index and query.</p>
+
+        <h3>Basic Usage</h3>
+        <pre><code>import "log/slog"
+
+// Package-level functions use the default logger (text to stderr)
+slog.Info("server started", "addr", ":8080")
+slog.Warn("cache miss", "key", key, "latency_ms", 42)
+slog.Error("query failed", "err", err, "user_id", userID)
+slog.Debug("request received", "method", r.Method, "path", r.URL.Path)
+
+// Output (TextHandler):
+// time=2025-04-07T14:30:00.000Z level=INFO msg="server started" addr=:8080</code></pre>
+
+        <h3>Typed Attrs — Faster &amp; Clearer</h3>
+        <p>The variadic <code>key, value</code> pairs are convenient but use <code>any</code> and allocate. For hot paths, use typed <code>slog.Attr</code>s — they're zero-allocation:</p>
+        <pre><code>slog.Info("request",
+    slog.String("method", r.Method),
+    slog.String("path", r.URL.Path),
+    slog.Int("status", 200),
+    slog.Duration("latency", elapsed),
+    slog.Any("err", err),            // for types without a helper
+)
+
+// Group related attrs under a namespace
+slog.Info("request",
+    slog.Group("http",
+        slog.String("method", r.Method),
+        slog.Int("status", status),
+    ),
+)
+// Output: ... http.method=GET http.status=200</code></pre>
+
+        <h3>JSON Output &amp; Custom Loggers</h3>
+        <pre><code>// JSONHandler — structured JSON for production/log aggregators
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelDebug,  // minimum level to emit
+}))
+slog.SetDefault(logger)  // make this the package-level default
+
+// Output:
+// {"time":"2025-04-07T14:30:00Z","level":"INFO","msg":"server started","addr":":8080"}
+
+// TextHandler — human-readable for local dev
+devLogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
+    // AddSource adds file:line to every log entry:
+    AddSource: true,
+}))</code></pre>
+
+        <h3>slog.With — Adding Persistent Context</h3>
+        <p>Use <code>With</code> to create a child logger that includes fixed fields on every message. Pass loggers through your application explicitly (or via context) rather than using globals:</p>
+        <pre><code>// Add fields that apply to all logs from this request
+requestLogger := slog.With(
+    slog.String("request_id", requestID),
+    slog.String("user_id", userID),
+)
+requestLogger.Info("processing")    // includes request_id and user_id
+requestLogger.Error("failed", "err", err)
+
+// Store in context for passing through call stacks
+ctx = ctxWithLogger(ctx, requestLogger)
+// ... retrieve later:
+logger := loggerFromCtx(ctx)
+
+// Minimal context logger pattern:
+func ctxWithLogger(ctx context.Context, l *slog.Logger) context.Context {
+    return context.WithValue(ctx, logKey{}, l)
+}
+func loggerFromCtx(ctx context.Context) *slog.Logger {
+    if l, ok := ctx.Value(logKey{}).(*slog.Logger); ok {
+        return l
+    }
+    return slog.Default()
+}</code></pre>
+
+        <h3>Log Levels &amp; Dynamic Level Control</h3>
+        <pre><code>// Levels in order: Debug < Info < Warn < Error
+slog.Debug(...)  // typically off in production
+slog.Info(...)
+slog.Warn(...)
+slog.Error(...)
+
+// Dynamic level — change without restarting
+var level slog.LevelVar  // defaults to Info
+level.Set(slog.LevelDebug)  // enable debug at runtime (e.g. via signal)
+
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    Level: &level,  // pointer — picks up runtime changes
+}))
+
+// Custom levels
+const LevelTrace = slog.Level(-8)
+logger.Log(ctx, LevelTrace, "trace message", "key", val)</code></pre>
+
+        <h3>Compatibility with the old log Package</h3>
+        <pre><code>// Redirect legacy log output through slog
+slog.NewLogLogger(handler, slog.LevelWarn)
+// Any code using log.Printf goes through slog now
+
+// Most libraries accept an *slog.Logger or log/slog-aware interface.
+// For libraries using the old log package, redirect:
+log.SetOutput(slog.NewLogLogger(handler, slog.LevelInfo).Writer())</code></pre>
+      </div>
+    </div>
+
+    <!-- GO DEEPER -->
+    <div class="section" style="border-style:dashed;">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
+      </div>
+      <div class="section-body">
+        <div class="resource-list">
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">pkg.go.dev/testing</div><div class="resource-author">go.dev</div><div class="resource-desc">The full testing package docs — the Overview section covers subtests, examples, benchmarks, fuzzing, and Main in detail. Read it front-to-back once you're comfortable with the basics.</div></div></div>
+          <a href="../docs.html?file=go_testing" class="resource" style="text-decoration:none;color:inherit;"><span class="resource-type library">library</span><div class="resource-content"><div class="resource-title">Go Blog — Using Subtests and Sub-benchmarks</div><div class="resource-author">Marcel van Lohuizen · go.dev/blog/subtests</div><div class="resource-desc">The canonical explanation of t.Run, subtest naming, filtering with -run, and how parallelism interacts with subtests. The authoritative source for the table-driven pattern. → Read in Primer Library</div></div></a>
+          <a href="../docs.html?file=go_slog" class="resource" style="text-decoration:none;color:inherit;"><span class="resource-type library">library</span><div class="resource-content"><div class="resource-title">Go Blog — Structured Logging with slog</div><div class="resource-author">Jonathan Amsterdam · go.dev/blog/slog</div><div class="resource-desc">The Go team's introduction to slog — design goals, the Attr performance model, handler interface, log levels, and migration from the old log package. The definitive slog guide. → Read in Primer Library</div></div></a>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">Go Fuzzing Guide</div><div class="resource-author">go.dev/doc/fuzz</div><div class="resource-desc">The official fuzzing documentation. Covers the full lifecycle: writing fuzz tests, running the fuzzer, managing the corpus, and interpreting failures. Short but complete.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">testify — assertions and mocking</div><div class="resource-author">github.com/stretchr/testify</div><div class="resource-desc">The most widely used Go test helper library. assert and require packages give you readable failure messages; suite gives you setup/teardown; mock gives you interface mocking. Most production Go codebases use at least assert/require.</div></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <a href="go-stdlib.html">← Standard Library</a>
+    <a href="../go.html" class="center">All modules</a>
+    <a href="go-http.html">HTTP Servers →</a>
+  </div>
+</footer>
+
+<script src="../js/app.js"></script>
+<script>
+  initSections('go-testing');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
+</script>
+</body>
+</html>

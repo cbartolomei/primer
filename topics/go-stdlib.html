@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Go Standard Library — Primer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a10'/><text y='.9em' font-size='78' font-weight='700' fill='%237c63f5' font-family='system-ui'>P</text></svg>">
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#7c63f5">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="inner">
+    <a href="../go.html" class="header-back">← Back</a>
+    <a href="../index.html" class="site-logo">pri<span>m</span>er</a>
+    <div class="header-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="topic-progress-bar" style="width:0%"></div></div>
+      <div class="progress-label" id="topic-progress-label">0 / 5 sections understood</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <div class="page-hero">
+    <h1>📦 Go Standard Library</h1>
+    <p class="subtitle">The packages you reach for every day — fmt, strings, io, os, time, net/url, and bufio. The interfaces and patterns that make Go's stdlib feel consistent across every package.</p>
+  </div>
+
+  <div class="topic-content">
+
+    <!-- SECTION 1: fmt -->
+    <div class="section" data-id="fmt">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🖨️</span><h2>fmt — Formatting &amp; Output</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><code>fmt</code> provides formatted I/O. The three function families differ only in destination: <code>Print*</code> writes to stdout, <code>Fprint*</code> writes to any <code>io.Writer</code>, <code>Sprint*</code> returns a string. The verb syntax is the same for all three.</p>
+
+        <h3>Formatting Verbs</h3>
+        <pre><code>// General
+%v   // default format for the value
+%+v  // structs: adds field names  {Name:Alice Age:30}
+%#v  // Go-syntax representation   main.Person{Name:"Alice", Age:30}
+%T   // type of the value          main.Person
+
+// Integers
+%d   // decimal
+%b   // binary
+%o   // octal
+%x   // hex lowercase  (also useful for byte slices: %x on []byte)
+%X   // hex uppercase
+%05d // zero-pad to width 5
+
+// Floats
+%f   // decimal point, no exponent   3.141593
+%e   // scientific notation          3.141593e+00
+%g   // shortest representation — use this as the default
+%.2f // two decimal places           3.14
+
+// Strings & bytes
+%s   // unquoted string
+%q   // double-quoted, Go-escaped    "hello\tworld"
+%x   // hex encoding of each byte
+
+// Width & alignment
+%-10s  // left-align in field of width 10
+%10s   // right-align in field of width 10
+%*d    // width from argument: fmt.Printf("%*d", 5, 42) → "   42"</code></pre>
+
+        <h3>Printf vs Sprintf vs Fprintf</h3>
+        <pre><code>// Printf — to stdout
+fmt.Printf("user=%s id=%d\n", name, id)
+
+// Sprintf — returns string (most common in app code)
+msg := fmt.Sprintf("request %s took %dms", path, elapsed)
+
+// Fprintf — to any io.Writer (files, HTTP responses, buffers)
+fmt.Fprintf(w, "HTTP/1.1 200 OK\r\n")
+fmt.Fprintf(os.Stderr, "error: %v\n", err)
+
+// Println adds spaces between args and a trailing newline
+fmt.Println("hello", "world")  // "hello world\n"
+// Print adds spaces only between non-string operands
+fmt.Print("a", "b", 1)  // "ab1"</code></pre>
+
+        <h3>The Stringer Interface</h3>
+        <p>Any type that implements <code>String() string</code> controls how it's formatted with <code>%v</code> and <code>%s</code>. This is the idiomatic way to give types a human-readable representation:</p>
+        <pre><code>type Direction int
+
+const (
+    North Direction = iota
+    South
+    East
+    West
+)
+
+func (d Direction) String() string {
+    return [...]string{"North", "South", "East", "West"}[d]
+}
+
+fmt.Println(North)         // "North"  (uses String())
+fmt.Printf("%v\n", South)  // "South"</code></pre>
+
+        <h3>fmt.Errorf and %w</h3>
+        <p><code>fmt.Errorf</code> with the <code>%w</code> verb wraps an error, preserving it for <code>errors.Is</code> and <code>errors.As</code>. Use <code>%v</code> when you want to include the message but not wrap (callers can't unwrap it):</p>
+        <pre><code>// Wrap — callers can unwrap with errors.Is / errors.As
+err = fmt.Errorf("loading config from %s: %w", path, err)
+
+// Don't wrap — just add context to the message
+err = fmt.Errorf("invalid state: %v", err)
+
+// Unwrapping:
+if errors.Is(err, os.ErrNotExist) { ... }  // works through the wrap chain</code></pre>
+
+        <h3>fmt.Sscanf — Parsing Formatted Input</h3>
+        <pre><code>var name string
+var age int
+n, err := fmt.Sscanf("Alice 30", "%s %d", &name, &age)
+// n=2, name="Alice", age=30</code></pre>
+      </div>
+    </div>
+
+    <!-- SECTION 2: strings & strconv -->
+    <div class="section" data-id="strings-strconv">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔤</span><h2>strings &amp; strconv</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>The <code>strings</code> package covers everything you need to work with string values. <code>strconv</code> handles converting between strings and other basic types. Both are in the standard library and have no dependencies.</p>
+
+        <h3>Essential strings Functions</h3>
+        <pre><code>import "strings"
+
+// Testing
+strings.Contains("seafood", "foo")       // true
+strings.HasPrefix("seafood", "sea")      // true
+strings.HasSuffix("seafood", "food")     // true
+strings.Count("cheese", "e")             // 3
+strings.EqualFold("Go", "go")            // true (case-insensitive)
+
+// Searching
+strings.Index("chicken", "ken")          // 4  (-1 if not found)
+strings.LastIndex("go gopher", "go")     // 3
+strings.IndexByte("hello", 'l')          // 2
+
+// Manipulation
+strings.ToLower("Gopher")               // "gopher"
+strings.ToUpper("Gopher")               // "GOPHER"
+strings.TrimSpace("  hello  ")          // "hello"
+strings.Trim("¡¡¡hello!!!", "!¡")       // "hello"
+strings.TrimPrefix("Goodbye", "Good")   // "bye"
+strings.TrimSuffix("goodbye", "bye")    // "good"
+strings.Replace("oink oink", "oink", "moo", 1)  // "moo oink"
+strings.ReplaceAll("oink oink", "oink", "moo")  // "moo moo"
+
+// Splitting & joining
+strings.Split("a,b,c", ",")             // ["a" "b" "c"]
+strings.SplitN("a,b,c", ",", 2)         // ["a" "b,c"]
+strings.Fields("  foo bar  baz  ")      // ["foo" "bar" "baz"]
+strings.Join([]string{"a","b","c"}, "-") // "a-b-c"
+
+// Repeating
+strings.Repeat("na", 4)                  // "nananana"</code></pre>
+
+        <h3>strings.Builder — Efficient Concatenation</h3>
+        <p>Concatenating strings with <code>+</code> in a loop allocates a new string on every iteration. <code>strings.Builder</code> amortizes allocations — use it whenever you're building a string incrementally:</p>
+        <pre><code>var b strings.Builder
+for i := 0; i < 5; i++ {
+    fmt.Fprintf(&b, "item%d ", i)  // Builder implements io.Writer
+}
+result := b.String()  // "item0 item1 item2 item3 item4 "
+
+// For known content use WriteString / WriteByte / WriteRune
+b.Reset()
+b.WriteString("Hello")
+b.WriteByte(',')
+b.WriteString(" World")
+s := b.String()  // "Hello, World"</code></pre>
+
+        <h3>strings.NewReader</h3>
+        <p>Turns a string into an <code>io.Reader</code> — essential when you have a string but an API expects a reader (e.g., <code>http.NewRequest</code> body, JSON decoder input):</p>
+        <pre><code>r := strings.NewReader(`{"name":"Alice"}`)
+dec := json.NewDecoder(r)
+// ... or:
+req, _ := http.NewRequest("POST", url, strings.NewReader(body))</code></pre>
+
+        <h3>strconv — Type Conversions</h3>
+        <pre><code>import "strconv"
+
+// int ↔ string  (Atoi = "ASCII to int", Itoa = "int to ASCII")
+n, err := strconv.Atoi("42")      // n=42
+s := strconv.Itoa(42)             // "42"
+
+// ParseXxx: string → type with base/bitSize control
+n64, err := strconv.ParseInt("FF", 16, 64)    // 255, base 16
+u64, err := strconv.ParseUint("42", 10, 64)
+f64, err := strconv.ParseFloat("3.14", 64)
+b, err   := strconv.ParseBool("true")          // true
+
+// FormatXxx: type → string
+strconv.FormatInt(255, 16)    // "ff"
+strconv.FormatFloat(3.14159, 'f', 2, 64)  // "3.14"
+strconv.FormatBool(true)      // "true"
+
+// Quote / Unquote — safe string escaping
+strconv.Quote("Hello\tWorld")      // `"Hello\tWorld"`
+strconv.Unquote(`"Hello\tWorld"`)  // "Hello\tWorld", nil
+
+// AppendXxx — zero-alloc versions that append to a []byte
+buf := strconv.AppendInt(buf, n, 10)</code></pre>
+
+        <p><strong>Performance note:</strong> <code>strconv</code> is significantly faster than <code>fmt.Sprintf</code> for simple type conversions. In hot paths, prefer <code>strconv.Itoa(n)</code> over <code>fmt.Sprintf("%d", n)</code>.</p>
+      </div>
+    </div>
+
+    <!-- SECTION 3: io, os, bufio -->
+    <div class="section" data-id="io-os">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📁</span><h2>io, os &amp; bufio</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>These three packages form Go's I/O foundation. <code>io</code> defines the core interfaces. <code>os</code> provides OS-level access (files, environment, processes). <code>bufio</code> adds buffering on top of any reader or writer.</p>
+
+        <h3>io.Reader and io.Writer — The Core Interfaces</h3>
+        <p>Almost everything in Go's I/O ecosystem composes around two interfaces:</p>
+        <pre><code>type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}</code></pre>
+        <p>Files, HTTP request bodies, HTTP response writers, network connections, bytes.Buffer, strings.Reader, gzip readers — all implement one or both. Code that accepts <code>io.Reader</code> works with any of them, which is why you see <code>io.Reader</code> throughout the standard library.</p>
+
+        <h3>Essential io Functions</h3>
+        <pre><code>import "io"
+
+// Copy: src → dst, returns bytes written
+n, err := io.Copy(dst, src)          // dst io.Writer, src io.Reader
+
+// ReadAll: read everything into memory
+data, err := io.ReadAll(r)           // r io.Reader → []byte
+// Use sparingly — reads entire content into memory.
+// For large inputs, stream with io.Copy or bufio.Scanner.
+
+// LimitReader: prevents reading more than n bytes
+lr := io.LimitReader(r, 1<<20)      // max 1 MB
+
+// TeeReader: reads from r, writes to w as a side-effect
+tr := io.TeeReader(r, w)            // reading tr also writes to w
+
+// Discard: a Writer that discards everything (like /dev/null)
+io.Copy(io.Discard, r)              // drain and discard r
+
+// NopCloser: wraps a Reader to add a no-op Close method
+rc := io.NopCloser(r)               // rc implements io.ReadCloser
+
+// Pipe: synchronous in-memory pipe
+pr, pw := io.Pipe()
+go func() {
+    pw.Write(data)
+    pw.Close()
+}()
+io.ReadAll(pr)</code></pre>
+
+        <h3>os — Files &amp; Environment</h3>
+        <pre><code>import "os"
+
+// Simple one-shot file I/O (Go 1.16+)
+data, err := os.ReadFile("config.json")         // read entire file
+err = os.WriteFile("out.txt", data, 0644)        // write entire file
+
+// Open for reading (returns *os.File, implements io.Reader)
+f, err := os.Open("data.csv")                   // read-only
+defer f.Close()
+
+// Create for writing (truncates if exists)
+f, err := os.Create("output.txt")              // write-only
+defer f.Close()
+
+// OpenFile with explicit flags
+f, err := os.OpenFile("app.log",
+    os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+
+// Directory operations
+entries, err := os.ReadDir(".")                 // []os.DirEntry
+err = os.MkdirAll("a/b/c", 0755)               // mkdir -p
+err = os.Remove("file.txt")                    // delete file
+err = os.RemoveAll("dir/")                     // rm -rf
+
+// Environment
+val := os.Getenv("HOME")                       // "" if not set
+val, ok := os.LookupEnv("HOME")                // ok=false if not set
+os.Setenv("KEY", "value")
+
+// Process
+args := os.Args                                // []string, Args[0] is program
+os.Exit(1)                                     // immediate exit, defers don't run
+fmt.Fprintln(os.Stderr, "error:", err)         // write to stderr</code></pre>
+
+        <h3>bufio — Buffered I/O</h3>
+        <p>Unbuffered reads and writes make a syscall on every call. <code>bufio</code> wraps any reader or writer with an internal buffer, batching syscalls and providing line-oriented reading:</p>
+        <pre><code>import "bufio"
+
+// Scanner — the idiomatic way to read line by line
+f, _ := os.Open("data.txt")
+defer f.Close()
+scanner := bufio.NewScanner(f)
+for scanner.Scan() {
+    line := scanner.Text()   // current line, no trailing \n
+    _ = line
+}
+if err := scanner.Err(); err != nil { ... }  // check after loop
+
+// Custom split function (default is ScanLines)
+scanner.Split(bufio.ScanWords)  // split by whitespace
+scanner.Split(bufio.ScanBytes)  // one byte at a time
+
+// Large lines: increase buffer size (default 64KB)
+buf := make([]byte, 1024*1024)
+scanner.Buffer(buf, len(buf))
+
+// bufio.Writer — batch writes to avoid per-call syscalls
+bw := bufio.NewWriter(f)
+bw.WriteString("hello\n")
+bw.Flush()  // must Flush to ensure data is written
+
+// bufio.Reader — buffered reading with extra methods
+br := bufio.NewReader(f)
+line, err := br.ReadString('\n')  // read until delimiter
+b, err := br.ReadByte()
+br.UnreadByte()                   // push back one byte</code></pre>
+
+        <h3>Common Pattern: Process a File Line by Line</h3>
+        <pre><code>func processLines(filename string) error {
+    f, err := os.Open(filename)
+    if err != nil {
+        return fmt.Errorf("open %s: %w", filename, err)
+    }
+    defer f.Close()
+
+    scanner := bufio.NewScanner(f)
+    for scanner.Scan() {
+        if err := processLine(scanner.Text()); err != nil {
+            return fmt.Errorf("line %q: %w", scanner.Text(), err)
+        }
+    }
+    return scanner.Err()
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- SECTION 4: time -->
+    <div class="section" data-id="time">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">⏱️</span><h2>time</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p>The <code>time</code> package has two distinct types: <code>time.Time</code> (a point in time) and <code>time.Duration</code> (an elapsed duration). They're not interchangeable — the type system prevents mixing them accidentally.</p>
+
+        <h3>time.Time and time.Duration</h3>
+        <pre><code>import "time"
+
+// Getting the current time
+now := time.Now()                         // time.Time
+unixSec := now.Unix()                     // int64 seconds since epoch
+unixMs := now.UnixMilli()                 // int64 milliseconds
+
+// Duration literals — always use the named constants
+5 * time.Second
+100 * time.Millisecond
+2*time.Hour + 30*time.Minute
+
+// Measuring elapsed time
+start := time.Now()
+doWork()
+elapsed := time.Since(start)              // time.Duration
+fmt.Printf("took %v\n", elapsed)          // "took 1.234s"
+fmt.Printf("took %dms\n", elapsed.Milliseconds())
+
+// Time arithmetic
+deadline := time.Now().Add(30 * time.Second)
+remaining := time.Until(deadline)         // time.Duration
+later := t.Add(24 * time.Hour)
+diff := t2.Sub(t1)                        // time.Duration
+
+// Comparisons
+t1.Before(t2)
+t1.After(t2)
+t1.Equal(t2)                              // use Equal, not ==</code></pre>
+
+        <h3>Formatting &amp; Parsing — The Reference Time</h3>
+        <p>Go's time formatting uses a mnemonic reference time instead of strftime codes: <strong>Mon Jan 2 15:04:05 MST 2006</strong>. That's 1-2-3-4-5-6-7 (month, day, hour, minute, second, year, timezone). Use its values as placeholders in your format string:</p>
+        <pre><code>// Format: reference time is Mon Jan 2 15:04:05 MST 2006
+t.Format("2006-01-02")                    // "2025-04-07"
+t.Format("2006-01-02 15:04:05")           // "2025-04-07 14:30:00"
+t.Format("Jan 2, 2006")                   // "Apr 7, 2025"
+t.Format(time.RFC3339)                    // "2025-04-07T14:30:00Z"
+t.Format(time.RFC3339Nano)                // with nanoseconds
+
+// Parse: use the same reference time
+t, err := time.Parse("2006-01-02", "2025-04-07")
+t, err = time.Parse(time.RFC3339, "2025-04-07T14:30:00Z")
+
+// Parse in a specific timezone
+loc, _ := time.LoadLocation("America/New_York")
+t, err = time.ParseInLocation("2006-01-02 15:04:05", s, loc)</code></pre>
+
+        <h3>Timers &amp; Tickers</h3>
+        <pre><code>// time.Sleep — block the current goroutine
+time.Sleep(100 * time.Millisecond)
+
+// time.After — receive on a channel after a duration
+select {
+case result := <-work:
+    process(result)
+case <-time.After(5 * time.Second):
+    return errors.New("timeout")
+}
+// Note: time.After leaks the timer until it fires.
+// For repeated use, prefer time.NewTimer.
+
+// time.NewTimer — one-shot timer, can be stopped
+timer := time.NewTimer(5 * time.Second)
+defer timer.Stop()              // always Stop to release resources
+select {
+case <-timer.C:
+    fmt.Println("fired")
+case <-ctx.Done():
+    if !timer.Stop() { <-timer.C }  // drain channel if Stop returns false
+}
+
+// time.NewTicker — fires repeatedly at an interval
+ticker := time.NewTicker(1 * time.Second)
+defer ticker.Stop()
+for {
+    select {
+    case t := <-ticker.C:
+        fmt.Println("tick at", t)
+    case <-done:
+        return
+    }
+}</code></pre>
+
+        <h3>JSON and time.Time</h3>
+        <p><code>time.Time</code> marshals to RFC 3339 by default in JSON, which is almost always what you want. If you need a different format, implement <code>MarshalJSON</code> / <code>UnmarshalJSON</code>:</p>
+        <pre><code>type Event struct {
+    Name      string    `json:"name"`
+    CreatedAt time.Time `json:"created_at"` // "2025-04-07T14:30:00Z"
+}
+
+// Custom date-only format
+type DateOnly struct{ time.Time }
+func (d DateOnly) MarshalJSON() ([]byte, error) {
+    return []byte(`"` + d.Format("2006-01-02") + `"`), nil
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- SECTION 5: net/url -->
+    <div class="section" data-id="net-url">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">🔗</span><h2>net/url &amp; regexp</h2></div>
+        <label class="section-understood"><input type="checkbox"><span>Mark understood</span></label>
+      </div>
+      <div class="section-body">
+        <p><code>net/url</code> handles URL parsing and construction. <code>regexp</code> provides compiled regular expressions. Both come up constantly in HTTP services.</p>
+
+        <h3>net/url — Parsing URLs</h3>
+        <pre><code>import "net/url"
+
+u, err := url.Parse("https://example.com/path?foo=bar&baz=qux#section")
+u.Scheme   // "https"
+u.Host     // "example.com"
+u.Path     // "/path"
+u.RawQuery // "foo=bar&baz=qux"
+u.Fragment // "section"
+
+// Parse query string into a map
+params := u.Query()              // url.Values (map[string][]string)
+params.Get("foo")                // "bar"
+params["baz"]                    // ["qux"]</code></pre>
+
+        <h3>Building URLs Safely</h3>
+        <p>Never construct URLs with string concatenation — values may contain characters that need escaping. Use <code>url.Values</code> and <code>url.URL</code> instead:</p>
+        <pre><code>// Build query parameters safely
+params := url.Values{}
+params.Set("q", "hello world")   // encodes spaces as +
+params.Set("page", "2")
+params.Add("tag", "go")
+params.Add("tag", "stdlib")      // multiple values for same key
+queryString := params.Encode()   // "page=2&q=hello+world&tag=go&tag=stdlib"
+
+// Construct a full URL
+u := &url.URL{
+    Scheme:   "https",
+    Host:     "api.example.com",
+    Path:     "/v1/search",
+    RawQuery: params.Encode(),
+}
+fmt.Println(u.String())
+// "https://api.example.com/v1/search?page=2&q=hello+world&tag=go&tag=stdlib"
+
+// Resolve a relative URL against a base
+base, _ := url.Parse("https://example.com/api/v1/")
+rel, _ := url.Parse("../v2/users")
+resolved := base.ResolveReference(rel)  // "https://example.com/api/v2/users"
+
+// Escaping utilities
+url.PathEscape("hello world/path")   // "hello%20world%2Fpath"
+url.QueryEscape("hello world")       // "hello+world"</code></pre>
+
+        <h3>regexp — Compiled Regular Expressions</h3>
+        <pre><code>import "regexp"
+
+// MustCompile panics on bad patterns — use for package-level vars
+var emailRe = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+
+// Compile returns an error — use in code paths that handle it
+re, err := regexp.Compile(`(\d{4})-(\d{2})-(\d{2})`)
+
+// Matching
+emailRe.MatchString("user@example.com")   // true
+
+// Finding
+re.FindString("date: 2025-04-07")                // "2025-04-07"
+re.FindStringSubmatch("date: 2025-04-07")
+// ["2025-04-07", "2025", "04", "07"] — [0]=full match, [1+]=groups
+
+re.FindAllString("2025-04-07 and 2024-12-01", -1)
+// ["2025-04-07", "2024-12-01"]
+
+// Named groups
+re2 := regexp.MustCompile(`(?P&lt;year&gt;\d{4})-(?P&lt;month&gt;\d{2})`)
+match := re2.FindStringSubmatch("2025-04")
+names := re2.SubexpNames()
+for i, name := range names {
+    if name != "" { fmt.Printf("%s: %s\n", name, match[i]) }
+}
+
+// Replace
+re.ReplaceAllString("2025-04-07", "YYYY-MM-DD")    // "YYYY-MM-DD"
+re.ReplaceAllStringFunc(s, func(m string) string { return strings.ToUpper(m) })
+
+// Split
+regexp.MustCompile(`\s+`).Split("one  two   three", -1)
+// ["one", "two", "three"]</code></pre>
+
+        <p><strong>Compile once, reuse everywhere.</strong> Compiling a regex is expensive. Declare compiled regexps as package-level <code>var</code>s or in struct initialization — never call <code>regexp.Compile</code> inside a loop or hot path.</p>
+      </div>
+    </div>
+
+    <!-- GO DEEPER -->
+    <div class="section" style="border-style:dashed;">
+      <div class="section-header">
+        <div class="section-header-left"><span class="section-icon">📚</span><h2>Go Deeper</h2></div>
+      </div>
+      <div class="section-body">
+        <div class="resource-list">
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">pkg.go.dev — Standard Library Reference</div><div class="resource-author">pkg.go.dev/std</div><div class="resource-desc">The authoritative reference for every package in the standard library. Each page has an Overview with narrative explanation, full API docs, and runnable examples. Once you know a package conceptually, use this as your lookup reference.</div></div></div>
+          <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">Go by Example</div><div class="resource-author">gobyexample.com</div><div class="resource-desc">95 short annotated examples covering the language and standard library. Each page is self-contained: see the code, read the explanation, run it in the playground. Excellent for quickly learning a new package's API — search for the package name.</div></div></div>
+          <div class="resource"><span class="resource-type docs">docs</span><div class="resource-content"><div class="resource-title">The io package — interfaces and composition</div><div class="resource-author">pkg.go.dev/io</div><div class="resource-desc">Read the package Overview section front-to-back — it's short and explains the full interface hierarchy (Reader, Writer, Closer, Seeker, ReadWriter, etc.). Understanding how these compose is the key insight for Go I/O.</div></div></div>
+          <a href="../docs.html?file=effective_go" class="resource" style="text-decoration:none;color:inherit;"><span class="resource-type library">library</span><div class="resource-content"><div class="resource-title">Effective Go</div><div class="resource-author">The Go Authors</div><div class="resource-desc">The Formatting, Data, and I/O sections cover fmt verbs, the Stringer interface, and how the io interfaces are designed. Essential background for understanding why the standard library looks the way it does. → Read in Primer Library</div></div></a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="module-nav">
+    <a href="go-idioms.html">← Go Idioms</a>
+    <a href="../go.html" class="center">All modules</a>
+    <a href="go-testing.html">Testing &amp; Logging →</a>
+  </div>
+</footer>
+
+<script src="../js/app.js"></script>
+<script>
+  initSections('go-stdlib');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
+</script>
+</body>
+</html>

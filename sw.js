@@ -1,4 +1,4 @@
-const CACHE = 'primer-v21';
+const CACHE = 'primer-v22';
 
 const PRECACHE = [
   './',
@@ -52,6 +52,10 @@ const PRECACHE = [
   './docs/k8s/resource-management.md',
   './docs/k8s/statefulsets.md',
   './docs/k8s/hpa.md',
+  './topics/go-stdlib.html',
+  './topics/go-testing.html',
+  './docs/go/slog.md',
+  './docs/go/testing.md',
 ];
 
 self.addEventListener('install', e => {

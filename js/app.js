@@ -173,6 +173,22 @@ const GO_TOPICS = [
     total: 5,
   },
   {
+    id: 'go-stdlib',
+    title: 'Standard Library',
+    icon: '📦',
+    desc: 'fmt, strings, strconv, io, os, bufio, time, net/url, and regexp — the packages you reach for every day',
+    path: 'topics/go-stdlib.html',
+    total: 5,
+  },
+  {
+    id: 'go-testing',
+    title: 'Testing & Logging',
+    icon: '🧪',
+    desc: 'Table-driven tests, subtests, benchmarks, fuzzing, httptest, and structured logging with log/slog',
+    path: 'topics/go-testing.html',
+    total: 6,
+  },
+  {
     id: 'go-http',
     title: 'HTTP Servers',
     icon: '🌐',
@@ -199,7 +215,7 @@ const GO_TIERS = [
   {
     label: 'Tier 2 — Patterns & Idioms',
     desc: 'Write Go the way the community writes it.',
-    ids: ['go-patterns', 'go-idioms'],
+    ids: ['go-patterns', 'go-idioms', 'go-stdlib', 'go-testing'],
   },
   {
     label: 'Tier 3 — Building Real Services',
