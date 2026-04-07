@@ -69,6 +69,75 @@ CMD ["node", "dist/server.js"]</code></pre>
 
         <h3>Docker Compose</h3>
         <p>Compose defines a multi-container application in a single YAML file. Essential for local development: <code>docker compose up</code> starts your API, database, Redis, and any other services defined, each with appropriate environment variables, volumes, and networking. Key patterns: use <code>depends_on</code> with <code>condition: service_healthy</code> (not just service_started) to wait for dependencies to be ready, use environment files (<code>env_file: .env.local</code>) for local secrets, and use named volumes for databases so data persists across <code>docker compose down</code>.</p>
+
+        <h3>ENTRYPOINT vs CMD</h3>
+        <p>Both define what runs when a container starts, but they serve different roles: <strong>ENTRYPOINT</strong> is the executable; <strong>CMD</strong> provides default arguments. When both are set, the container runs <code>ENTRYPOINT + CMD</code> as a single command. CMD alone is the default command, but users can override it at runtime (<code>docker run myimage bash</code>). ENTRYPOINT is harder to override (requires <code>--entrypoint</code> flag) — use it when the container has a fixed purpose.</p>
+        <pre><code># CMD only — easy to override, good for general-purpose images
+CMD ["node", "server.js"]
+
+# ENTRYPOINT + CMD — fixed executable, overridable args
+ENTRYPOINT ["node"]
+CMD ["server.js"]        # override: docker run myimage other.js
+
+# Common pattern: wrapper script as entrypoint
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["node", "server.js"]</code></pre>
+        <p><strong>Always use exec form</strong> (<code>["executable", "arg"]</code>), not shell form (<code>executable arg</code>). Shell form runs your command as a child of <code>/bin/sh -c</code>, which means signals like <code>SIGTERM</code> go to the shell, not your process. Exec form runs your process directly as PID 1 and receives signals correctly.</p>
+
+        <h3>Signal Handling &amp; PID 1</h3>
+        <p>The process inside a container that runs as PID 1 has special responsibilities that normal init systems handle: forwarding signals to child processes and reaping zombie processes. Most application runtimes (Node, Python, Go binaries) are not designed to run as PID 1. When you run <code>docker stop</code>, Docker sends <code>SIGTERM</code> to PID 1 and waits 10 seconds before sending <code>SIGKILL</code>. If your app doesn't handle <code>SIGTERM</code> as PID 1, it gets hard-killed — no graceful shutdown, no connection draining, no in-flight request completion.</p>
+        <pre><code># Add tini as a lightweight init process
+FROM node:20-alpine
+RUN apk add --no-cache tini
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["node", "server.js"]
+
+# Or use Docker's built-in init (less control, but simpler)
+# docker run --init myimage</code></pre>
+        <p><strong>tini</strong> (and <strong>dumb-init</strong>) are minimal init systems designed for containers. They properly forward signals to your app and clean up zombie processes. Add tini to any image where graceful shutdown matters — which is essentially every production service. For Go, the runtime handles signals as PID 1 reasonably well if you set up a signal handler; for Node and Python, tini is the safest default.</p>
+
+        <h3>BuildKit &amp; Advanced Build Caching</h3>
+        <p>BuildKit is the default build engine (enabled since Docker 23). Its killer feature for development and CI is <strong>cache mounts</strong>: directories that persist between builds but are never included in the final image. This means your package manager cache — Go's module cache, npm's node_modules cache, pip's wheel cache — survives across builds even when dependencies change.</p>
+        <pre><code># Go: cache module downloads and build cache separately
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -o /app/server ./cmd/server
+
+# Node: cache npm's global cache directory
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --prefer-offline
+
+# Python: cache pip's wheel cache
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt</code></pre>
+        <p>For <strong>secrets at build time</strong> — API keys, private repo tokens — never put them in ENV or RUN commands. Even if you delete them in a later layer, they're still in the image history. Use <code>--mount=type=secret</code> instead: the secret is available during that RUN step only, never written to any layer:</p>
+        <pre><code># Pass a secret (never ends up in the image)
+RUN --mount=type=secret,id=npmrc,target=/root/.npmrc \
+    npm ci
+
+# Build: docker build --secret id=npmrc,src=.npmrc .</code></pre>
+
+        <h3>Image Security</h3>
+        <p>The most common mistake: <strong>secrets baked into image layers</strong>. Even if a later <code>RUN rm secret-file</code> removes the file, it still exists in the earlier layer — anyone who pulls your image can extract it with <code>docker history</code> or by running the intermediate layer. Use BuildKit secrets or multi-stage builds to ensure credentials never touch a committed layer.</p>
+        <p>Minimize your attack surface with smaller base images:</p>
+        <ul>
+          <li><strong>Alpine</strong> (~5 MB) — musl libc instead of glibc. Works for most apps but can cause subtle issues with CGo-linked binaries. Good default for most services.</li>
+          <li><strong>Distroless</strong> (Google's <code>gcr.io/distroless</code>) — no shell, no package manager, no utilities. Attacker can't exec into the container even if they exploit your app. Ideal for Go and Java. Pair with a builder stage for compilation.</li>
+          <li><strong>scratch</strong> — completely empty filesystem. Only viable for statically compiled Go binaries with no external dependencies. Smallest possible image.</li>
+        </ul>
+        <p>Pin base images to a <strong>digest</strong>, not just a tag: <code>FROM node:20-alpine@sha256:abc123...</code>. Tags are mutable — <code>node:20-alpine</code> today is not the same image as next week. In CI, pull digests and pin them in your Dockerfile. Run <strong>image scanning</strong> on every build: <code>trivy image myimage:latest</code> or <code>docker scout cves myimage</code> will surface known CVEs in your base image and dependencies before they reach production.</p>
+
+        <h3>Multi-Platform Builds</h3>
+        <p>M-series Macs are <code>arm64</code>; most production infrastructure is <code>linux/amd64</code>. Images built without specifying a platform will silently produce an architecture-specific image, causing "exec format error" when deployed. Use <strong>buildx</strong> to build for multiple platforms in one command:</p>
+        <pre><code># Build for both architectures and push a multi-arch manifest
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  --tag myorg/myapp:latest \
+  --push .
+
+# Or build for amd64 only when developing on Apple Silicon
+docker buildx build --platform linux/amd64 -t myapp:dev --load .</code></pre>
+        <p>Buildx uses QEMU for cross-platform emulation when the host architecture doesn't match the target. It's slower than native builds (emulated amd64 on arm64 is ~2-5× slower) but produces correct images. In CI on amd64 runners, the build is native and fast. The <code>--push</code> flag sends all architecture variants to the registry together as a single multi-arch manifest — users get the right variant automatically when they pull.</p>
       </div>
     </div>
 
@@ -126,6 +195,11 @@ CMD ["node", "dist/server.js"]</code></pre>
           <div class="resource"><span class="resource-type blog">blog</span><div class="resource-content"><div class="resource-title">GitHub Actions Documentation</div><div class="resource-author">docs.github.com/en/actions</div><div class="resource-desc">If you're using GitHub, Actions is the most accessible CI/CD starting point. The workflow syntax guide and the marketplace for reusable actions. Most teams start here before graduating to dedicated CI (CircleCI, Buildkite, Tekton).</div></div></div>
           <a href="../docs.html?file=sre_ch08" class="resource" style="text-decoration:none;color:inherit;"><span class="resource-type library">library</span><div class="resource-content"><div class="resource-title">SRE Book — Ch. 8: Release Engineering</div><div class="resource-author">Site Reliability Engineering — Google</div><div class="resource-desc">How Google approaches hermetic builds, configuration management, and deployment pipelines. The philosophy that builds should be reproducible, releases should be auditable, and deployments should be push-button safe. → Read in Primer Library</div></div></a>
           <a href="../docs.html?file=sre_ch05" class="resource" style="text-decoration:none;color:inherit;"><span class="resource-type library">library</span><div class="resource-content"><div class="resource-title">SRE Book — Ch. 5: Eliminating Toil</div><div class="resource-author">Site Reliability Engineering — Google</div><div class="resource-desc">The SRE definition of toil and why eliminating it through automation is a core engineering goal — not just a productivity hack. Directly relevant to infrastructure automation and the ops-as-code mindset. → Read in Primer Library</div></div></a>
+          <a href="../docs.html?file=k8s_deployments" class="resource" style="text-decoration:none;color:inherit;"><span class="resource-type library">library</span><div class="resource-content"><div class="resource-title">Kubernetes Docs — Deployments</div><div class="resource-author">kubernetes.io</div><div class="resource-desc">The full Deployments concept page: rolling updates, rollback mechanics, scaling, pausing and resuming. The authoritative reference for the object you'll use most. → Read in Primer Library</div></div></a>
+          <a href="../docs.html?file=k8s_resource_mgmt" class="resource" style="text-decoration:none;color:inherit;"><span class="resource-type library">library</span><div class="resource-content"><div class="resource-title">Kubernetes Docs — Managing Resources for Containers</div><div class="resource-author">kubernetes.io</div><div class="resource-desc">CPU/memory requests vs. limits, how throttling and OOMKill work, QoS classes (Guaranteed, Burstable, BestEffort). Essential reading before setting resource limits in production. → Read in Primer Library</div></div></a>
+          <a href="../docs.html?file=k8s_services" class="resource" style="text-decoration:none;color:inherit;"><span class="resource-type library">library</span><div class="resource-content"><div class="resource-title">Kubernetes Docs — Services</div><div class="resource-author">kubernetes.io</div><div class="resource-desc">ClusterIP, NodePort, LoadBalancer, ExternalName — when to use each, how service discovery works via DNS, and how kube-proxy routes traffic to pod endpoints. → Read in Primer Library</div></div></a>
+          <a href="../docs.html?file=k8s_statefulsets" class="resource" style="text-decoration:none;color:inherit;"><span class="resource-type library">library</span><div class="resource-content"><div class="resource-title">Kubernetes Docs — StatefulSets</div><div class="resource-author">kubernetes.io</div><div class="resource-desc">Stable network identity, ordered deployment and scaling, and persistent volume claims per pod. The reference for running databases, Kafka, ZooKeeper, and other stateful workloads on Kubernetes. → Read in Primer Library</div></div></a>
+          <a href="../docs.html?file=k8s_hpa" class="resource" style="text-decoration:none;color:inherit;"><span class="resource-type library">library</span><div class="resource-content"><div class="resource-title">Kubernetes Docs — Horizontal Pod Autoscaling</div><div class="resource-author">kubernetes.io</div><div class="resource-desc">CPU and memory autoscaling, custom metrics via the Metrics API, scaling behavior policies, and stabilization windows to prevent thrashing. The complete HPA reference. → Read in Primer Library</div></div></a>
         </div>
       </div>
     </div>

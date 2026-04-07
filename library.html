@@ -228,6 +228,29 @@
 
   <hr class="library-divider">
 
+  <!-- ── Kubernetes Docs ──────────────────────────────────────── -->
+  <div class="book-section">
+    <div class="book-header">
+      <h2 class="book-title">Kubernetes — Selected Concepts</h2>
+      <div class="book-byline">The Kubernetes Authors · kubernetes.io</div>
+      <a href="https://kubernetes.io/docs/concepts/" target="_blank" rel="noopener" class="book-source-link">kubernetes.io/docs/concepts · Free online ↗</a>
+      <p class="book-desc">The five most essential Kubernetes concept pages, saved for offline reading. Covers the objects you work with every day: Deployments, Services, resource requests &amp; limits, StatefulSets, and autoscaling. Primary source for Primer's Infrastructure content.</p>
+    </div>
+
+    <div class="book-progress-row">
+      <div class="book-progress-bar-wrap">
+        <div class="book-progress-bar" id="k8s-progress-bar" style="width:0%"></div>
+      </div>
+      <span class="book-progress-label" id="k8s-progress-label">0 / 5 pages read</span>
+    </div>
+
+    <div class="chapter-list" id="k8s-chapter-list">
+      <!-- Rendered by JS below -->
+    </div>
+  </div>
+
+  <hr class="library-divider">
+
   <!-- ── Effective Go ──────────────────────────────────────── -->
   <div class="book-section">
     <div class="book-header">
@@ -348,6 +371,37 @@
   function esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
+
+  // ── Kubernetes pages ─────────────────────────────────────────
+  const K8S_PAGES = [
+    { title: 'Deployments',                    desc: 'Rolling updates, rollbacks, scaling, and deployment strategies', docKey: 'k8s_deployments' },
+    { title: 'Services',                        desc: 'ClusterIP, NodePort, LoadBalancer, DNS, and service discovery', docKey: 'k8s_services' },
+    { title: 'Managing Resources for Containers', desc: 'CPU/memory requests vs. limits, OOMKill, throttling, QoS classes', docKey: 'k8s_resource_mgmt' },
+    { title: 'StatefulSets',                   desc: 'Stable identity, ordered pod management, persistent volumes for stateful apps', docKey: 'k8s_statefulsets' },
+    { title: 'Horizontal Pod Autoscaling',     desc: 'CPU/memory-based autoscaling, custom metrics, scaling behavior and stabilization', docKey: 'k8s_hpa' },
+  ];
+
+  const k8sReadCount = K8S_PAGES.filter(p => reads[p.docKey]).length;
+  const k8sPct = K8S_PAGES.length > 0 ? Math.round((k8sReadCount / K8S_PAGES.length) * 100) : 0;
+  document.getElementById('k8s-progress-bar').style.width = k8sPct + '%';
+  document.getElementById('k8s-progress-label').textContent = `${k8sReadCount} / ${K8S_PAGES.length} pages read`;
+
+  const k8sList = document.getElementById('k8s-chapter-list');
+  K8S_PAGES.forEach((p, i) => {
+    const isRead = !!reads[p.docKey];
+    const a = document.createElement('a');
+    a.href = `docs.html?file=${p.docKey}`;
+    a.className = 'chapter-item available';
+    a.innerHTML = `
+      <span class="chapter-num" style="font-size:0.7rem;min-width:2rem;">${i + 1}</span>
+      <div class="chapter-info">
+        <div class="chapter-title">${esc(p.title)}</div>
+        <div class="chapter-desc">${esc(p.desc)}</div>
+      </div>
+      <span class="chapter-status ${isRead ? 'read' : 'arrow'}">${isRead ? '✓ Read' : '→'}</span>
+    `;
+    k8sList.appendChild(a);
+  });
 })();
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

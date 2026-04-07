@@ -430,6 +430,11 @@
       back: 'library.html',
       chapters: ['sre_ch03','sre_ch04','sre_ch05','sre_ch06','sre_ch08','sre_ch10','sre_ch12','sre_ch15','sre_ch17','sre_ch21','sre_ch22','sre_ch23'],
     },
+    k8s: {
+      title: 'Kubernetes Docs — Selected Concepts',
+      back: 'library.html',
+      chapters: ['k8s_deployments','k8s_services','k8s_resource_mgmt','k8s_statefulsets','k8s_hpa'],
+    },
   };
 
   // ── Known docs ──────────────────────────────────────────────
@@ -499,6 +504,33 @@
       file: 'docs/sre-book/ch23-distributed-consensus.md',
       back: 'library.html', badge: 'SRE Book · Ch. 23', book: 'sre', title: 'Distributed Consensus',
       source: '<a href="https://sre.google/sre-book/managing-critical-state/" target="_blank" rel="noopener">sre.google/sre-book/managing-critical-state</a>',
+    },
+
+    // ── Kubernetes Docs ─────────────────────────────────────────
+    'k8s_deployments': {
+      file: 'docs/k8s/deployments.md',
+      back: 'library.html', badge: 'Kubernetes Docs', book: 'k8s', title: 'Deployments',
+      source: '<a href="https://kubernetes.io/docs/concepts/workloads/controllers/deployment/" target="_blank" rel="noopener">kubernetes.io/docs/concepts/workloads/controllers/deployment</a>',
+    },
+    'k8s_services': {
+      file: 'docs/k8s/services.md',
+      back: 'library.html', badge: 'Kubernetes Docs', book: 'k8s', title: 'Services',
+      source: '<a href="https://kubernetes.io/docs/concepts/services-networking/service/" target="_blank" rel="noopener">kubernetes.io/docs/concepts/services-networking/service</a>',
+    },
+    'k8s_resource_mgmt': {
+      file: 'docs/k8s/resource-management.md',
+      back: 'library.html', badge: 'Kubernetes Docs', book: 'k8s', title: 'Managing Resources for Containers',
+      source: '<a href="https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/" target="_blank" rel="noopener">kubernetes.io/docs/concepts/configuration/manage-resources-containers</a>',
+    },
+    'k8s_statefulsets': {
+      file: 'docs/k8s/statefulsets.md',
+      back: 'library.html', badge: 'Kubernetes Docs', book: 'k8s', title: 'StatefulSets',
+      source: '<a href="https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/" target="_blank" rel="noopener">kubernetes.io/docs/concepts/workloads/controllers/statefulset</a>',
+    },
+    'k8s_hpa': {
+      file: 'docs/k8s/hpa.md',
+      back: 'library.html', badge: 'Kubernetes Docs', book: 'k8s', title: 'Horizontal Pod Autoscaling',
+      source: '<a href="https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/" target="_blank" rel="noopener">kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale</a>',
     },
   };
 

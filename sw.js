@@ -1,4 +1,4 @@
-const CACHE = 'primer-v20';
+const CACHE = 'primer-v21';
 
 const PRECACHE = [
   './',
@@ -47,6 +47,11 @@ const PRECACHE = [
   './docs/sre-book/ch21-handling-overload.md',
   './docs/sre-book/ch22-cascading-failures.md',
   './docs/sre-book/ch23-distributed-consensus.md',
+  './docs/k8s/deployments.md',
+  './docs/k8s/services.md',
+  './docs/k8s/resource-management.md',
+  './docs/k8s/statefulsets.md',
+  './docs/k8s/hpa.md',
 ];
 
 self.addEventListener('install', e => {
